@@ -1,0 +1,1 @@
+"use strict";exports.id=655,exports.ids=[655],exports.modules={2655:(e,t,s)=>{s.r(t),s.d(t,{default:()=>d});var r=s(997),u=s(6689);function d({center:e=[5.55,-.2],markers:t=[],zoom:s=11}){let d=(0,u.useRef)(null);return(0,u.useEffect)(()=>{},[e,t,s]),r.jsx("div",{ref:d,style:{height:"100%"}})}}};

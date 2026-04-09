@@ -1,0 +1,369 @@
+﻿* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #__next {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  color: #333;
+}
+
+/* ============= MATERIAL ICONS ============= */
+.material-icons {
+  font-family: 'Material Icons';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  display: inline-flex;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+  vertical-align: middle;
+}
+
+/* Responsive Material Icons */
+@media (max-width: 768px) {
+  .material-icons {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .material-icons {
+    font-size: 18px;
+  }
+}
+
+/* ============= CONTAINER & LAYOUT ============= */
+.container {
+  max-width: 100%;
+  min-height: 100vh;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.container h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 10px;
+  text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+  letter-spacing: -1px;
+}
+
+.subtitle {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 30px;
+  text-align: center;
+  font-weight: 300;
+}
+
+/* ============= CARD COMPONENT ============= */
+.card {
+  background: white;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  padding: 30px;
+  margin-bottom: 20px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  animation: slideUp 0.5s ease-out;
+  max-width: 600px;
+  width: 100%;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card h3 {
+  font-size: 1.8rem;
+  color: #333;
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+
+.card p {
+  color: #666;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+.small {
+  font-size: 0.9rem;
+  color: #999;
+  font-weight: 300;
+}
+
+/* ============= EMERGENCY BUTTONS ============= */
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 15px;
+  margin: 20px 0;
+  width: 100%;
+}
+
+.big-btn {
+  height: 120px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+.big-btn:hover:not(:disabled) {
+  transform: translateY(-5px);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.25);
+}
+
+.big-btn:active:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.big-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Fire Button - Red gradient */
+.fire {
+  background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 50%, #ffccc7 100%);
+  box-shadow: 0 8px 25px rgba(255, 77, 79, 0.3);
+}
+
+.fire:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ff7875 0%, #ff9c9c 50%, #ffdbdb 100%);
+  box-shadow: 0 15px 40px rgba(255, 77, 79, 0.4);
+}
+
+/* Medical Button - Blue gradient */
+.medical {
+  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 50%, #bae7ff 100%);
+  box-shadow: 0 8px 25px rgba(24, 144, 255, 0.3);
+}
+
+.medical:hover:not(:disabled) {
+  background: linear-gradient(135deg, #40a9ff 0%, #69c0ff 50%, #e0f6ff 100%);
+  box-shadow: 0 15px 40px rgba(24, 144, 255, 0.4);
+}
+
+/* Crime Button - Orange gradient */
+.crime {
+  background: linear-gradient(135deg, #fa8c16 0%, #fab307 50%, #ffd591 100%);
+  box-shadow: 0 8px 25px rgba(250, 140, 22, 0.3);
+}
+
+.crime:hover:not(:disabled) {
+  background: linear-gradient(135deg, #fab307 0%, #fcc93e 50%, #ffe7b5 100%);
+  box-shadow: 0 15px 40px rgba(250, 140, 22, 0.4);
+}
+
+/* ============= FORM ELEMENTS ============= */
+textarea, input[type="file"], input[type="text"], select {
+  width: 100%;
+  padding: 12px 15px;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: all 0.3s ease;
+  margin-bottom: 12px;
+}
+
+textarea:focus, input:focus, select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+input[type="file"]::file-selector-button {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.3s ease;
+}
+
+input[type="file"]::file-selector-button:hover {
+  background: #764ba2;
+}
+
+/* ============= ACTION BUTTONS ============= */
+button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #667eea;
+  color: white;
+  text-transform: uppercase;
+}
+
+button:hover {
+  background: #764ba2;
+  transform: translateY(-2px);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ============= SOS CIRCLE ============= */
+.sos {
+  width: 100px;
+  height: 100px;
+  background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 700;
+  color: white;
+  box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.7);
+  animation: sosPulse 2s infinite;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  margin: 16px auto;
+}
+
+.sos:hover {
+  transform: scale(1.1);
+}
+
+@keyframes sosPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 20px rgba(255, 77, 79, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0);
+  }
+}
+
+/* ============= MAP CONTAINER ============= */
+.map {
+  height: 300px;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* ============= ADMIN DASHBOARD ============= */
+.admin-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.admin-actions button {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+/* ============= RESPONSIVE ============= */
+@media (max-width: 768px) {
+  .container h1 {
+    font-size: 1.8rem;
+  }
+
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  .big-btn {
+    height: 80px;
+    font-size: 1rem;
+  }
+
+  .card {
+    padding: 20px;
+  }
+
+  .sos {
+    width: 80px;
+    height: 80px;
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .container h1 {
+    font-size: 1.5rem;
+  }
+
+  .container {
+    padding: 15px;
+  }
+
+  .card {
+    padding: 15px;
+    margin-bottom: 15px;
+  }
+
+  .sos {
+    width: 70px;
+    height: 70px;
+    font-size: 1.3rem;
+  }
+
+  .big-btn {
+    height: 70px;
+    font-size: 0.9rem;
+  }
+}
+
+/* ============= ANIMATIONS ============= */
+@keyframes blink {
+  0%, 49% {
+    opacity: 1;
+  }
+  50%, 100% {
+    opacity: 0;
+  }
+}
