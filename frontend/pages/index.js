@@ -24,6 +24,12 @@ export default function Home(){
   // Media upload
   const [mediaFiles, setMediaFiles] = useState([]);
   const fileInputRef = useRef(null);
+  
+  // Camera capture
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
 
   // Get location first when emergency button is pressed
   const handleEmergencyClick = async (type) => {
@@ -84,6 +90,52 @@ export default function Home(){
   // Remove media file
   const removeMedia = (index) => {
     setMediaFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Start camera
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      setCameraStream(stream);
+      setShowCamera(true);
+      
+      // Set video stream to video element
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (e) {
+      alert('Camera permission required. Please enable camera access.');
+    }
+  };
+
+  // Capture photo from camera
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const context = canvasRef.current.getContext('2d');
+      canvasRef.current.width = videoRef.current.videoWidth;
+      canvasRef.current.height = videoRef.current.videoHeight;
+      context.drawImage(videoRef.current, 0, 0);
+      
+      canvasRef.current.toBlob((blob) => {
+        const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        setMediaFiles(prev => [...prev, file]);
+      }, 'image/jpeg', 0.95);
+      
+      closeCamera();
+    }
+  };
+
+  // Close camera
+  const closeCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setShowCamera(false);
   };
 
   const send = async () => {
@@ -209,13 +261,22 @@ export default function Home(){
               Photos/Videos (Optional)
             </p>
             
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              style={{ width: '100%', background: '#0288d1', color: 'white', padding: '12px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-            >
-              <i className="material-icons" style={{ fontSize: '20px' }}>upload_file</i>
-              Add Photos/Videos
-            </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                style={{ background: '#0288d1', color: 'white', padding: '12px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              >
+                <i className="material-icons" style={{ fontSize: '20px' }}>upload_file</i>
+                Upload Files
+              </button>
+              <button 
+                onClick={startCamera}
+                style={{ background: '#00bcd4', color: 'white', padding: '12px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              >
+                <i className="material-icons" style={{ fontSize: '20px' }}>camera_alt</i>
+                Take Photo
+              </button>
+            </div>
             <input 
               ref={fileInputRef}
               type="file"
@@ -276,6 +337,105 @@ export default function Home(){
             </button>
           </div>
         </div>
+
+        {/* Camera Modal */}
+        {showCamera && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.95)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '10px'
+          }}>
+            <div style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: '600px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '15px'
+            }}>
+              <h3 style={{ color: 'white', margin: '10px 0', fontSize: '1.2rem' }}>
+                📸 Take a Photo
+              </h3>
+              
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                style={{
+                  width: '100%',
+                  maxHeight: '500px',
+                  borderRadius: '12px',
+                  backgroundColor: '#000',
+                  border: '3px solid #00bcd4',
+                  objectFit: 'cover'
+                }}
+              />
+              
+              <canvas
+                ref={canvasRef}
+                style={{ display: 'none' }}
+              />
+              
+              <div style={{
+                display: 'flex',
+                gap: '15px',
+                width: '100%',
+                justifyContent: 'center'
+              }}>
+                <button
+                  onClick={capturePhoto}
+                  style={{
+                    padding: '12px 30px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: '#4caf50',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 15px rgba(76, 175, 80, 0.4)'
+                  }}
+                >
+                  <i className="material-icons">camera</i>
+                  Capture Photo
+                </button>
+                <button
+                  onClick={closeCamera}
+                  style={{
+                    padding: '12px 30px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: '#f44336',
+                    color: 'white',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 15px rgba(244, 67, 54, 0.4)'
+                  }}
+                >
+                  <i className="material-icons">close</i>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <style jsx>{`
           @keyframes pulse {
