@@ -1,320 +1,298 @@
-﻿import { useEffect, useState } from 'react';
-import axios from 'axios';
+﻿import { useEffect, useState } from "react";
+import axios from "axios";
+import Head from "next/head";
 
-export default function Admin(){
+const Admin = () => {
   const [reports, setReports] = useState([]);
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [filter, setFilter] = useState("all");
   const [selectedReport, setSelectedReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [streetName, setStreetName] = useState(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await axios.get(process.env.NEXT_PUBLIC_API_BASE + '/reports');
+        const res = await axios.get(process.env.NEXT_PUBLIC_API_BASE + "/reports");
         setReports(res.data || []);
       } catch (e) {
-        console.error('Failed to load:', e);
+        console.error(e);
+      } finally {
+        setLoading(false);
       }
     };
     load();
-    
-    // Refresh every 5 seconds
-    const interval = setInterval(load, 5000);
+    const interval = setInterval(load, 3000);
     return () => clearInterval(interval);
   }, []);
-
-  const filtered = reports.filter(r => 
-    (typeFilter === 'all' || r.type === typeFilter) && 
-    (statusFilter === 'all' || r.status === statusFilter)
-  );
 
   const updateStatus = async (id, status) => {
     try {
       await axios.patch(`${process.env.NEXT_PUBLIC_API_BASE}/report/${id}`, { status });
-      setReports(prev => prev.map(r => r._id === id ? {...r, status} : r));
+      setReports(prev => prev.map(r => r._id === id ? { ...r, status } : r));
     } catch (e) {
-      console.error('Failed to update:', e);
+      console.error(e);
     }
   };
 
-  const getEmojis = (type) => {
-    const map = { fire: '🔥', medical: '🏥', crime: '🚔' };
-    return map[type] || '🚨';
+  const getStreetName = async (lat, lng) => {
+    setLoadingLocation(true);
+    setStreetName(null);
+    try {
+      // Use Google Maps Geocoding API (requires API key)
+      const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+      if (!GOOGLE_API_KEY) {
+        // Fallback to OpenStreetMap if no Google API key
+        const response = await axios.get(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+        );
+        const address = response.data.address;
+        const street = address.road || address.street || address.neighbourhood || address.village || address.town || address.city || "Unknown Location";
+        setStreetName(street);
+      } else {
+        // Use Google Maps Geocoding API
+        const response = await axios.get(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_API_KEY}`
+        );
+        if (response.data.results && response.data.results.length > 0) {
+          const address = response.data.results[0];
+          // Get formatted address or street
+          const street = address.formatted_address || address.address_components[0]?.long_name || "Unknown Location";
+          setStreetName(street);
+        } else {
+          setStreetName("Location not found");
+        }
+      }
+    } catch (e) {
+      console.error("Geocoding error:", e);
+      setStreetName("Unable to fetch location name");
+    } finally {
+      setLoadingLocation(false);
+    }
   };
 
-  const getStatusColor = (status) => {
-    const colors = { pending: '#ff9800', responding: '#2196f3', resolved: '#4caf50' };
-    return colors[status] || '#999';
-  };
-
-  const getGoogleMapsUrl = (lat, lng) => {
-    return `https://www.google.com/maps?q=${lat},${lng}`;
-  };
+  const filtered = reports.filter(r => filter === "all" || r.status === filter);
+  const pending = reports.filter(r => r.status === "pending").length;
+  const responding = reports.filter(r => r.status === "responding").length;
+  const resolved = reports.filter(r => r.status === "resolved").length;
+  const responseRate = reports.length > 0 ? Math.round(((responding + resolved) / reports.length) * 100) : 0;
 
   return (
-    <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', padding: 20 }}>
-      <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-        {/* Header */}
-        <div className="card" style={{ marginBottom: 20 }}>
-          <h1 style={{ marginBottom: 5 }}>🚨 Emergency Dashboard</h1>
-          <p style={{ color: '#999', marginBottom: 15 }}>Real-time Emergency Response Management with Live Tracking</p>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>
-            📡 Total Alerts: <strong>{reports.length}</strong> | 
-            ⏳ Pending: <strong>{reports.filter(r => r.status === 'pending').length}</strong> | 
-            🚗 Responding: <strong>{reports.filter(r => r.status === 'responding').length}</strong> | 
-            ✓ Resolved: <strong>{reports.filter(r => r.status === 'resolved').length}</strong>
-          </p>
+    <div style={{ background: "linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%)", minHeight: "100vh", color: "#e2e8f0" }}>
+      <div style={{ background: "linear-gradient(135deg, #dc2626 0%, #991b1b 50%, #1e40af 100%)", padding: "40px 20px", textAlign: "center", borderBottom: "3px solid #fbbf24", position: "relative" }}>
+        <div style={{ position: "absolute", top: 20, right: 20, display: "flex", gap: 10 }}>
+          <a href="/admin" style={{ padding: "10px 20px", background: "rgba(255,255,255,0.1)", color: "white", textDecoration: "none", borderRadius: 6, fontSize: "0.9rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.2s" }} onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.2)"; }} onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.1)"; }}>
+            🔄 Live
+          </a>
+          <a href="/reports" style={{ padding: "10px 20px", background: "rgba(255,255,255,0.15)", color: "white", textDecoration: "none", borderRadius: 6, fontSize: "0.9rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.2s" }} onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.25)"; }} onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.15)"; }}>
+            📋 Archive
+          </a>
         </div>
-
-        {/* Filters */}
-        <div className="card" style={{ marginBottom: 20 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
-            <div>
-              <label style={{ fontWeight: 600, display: 'block', marginBottom: 8 }}>Emergency Type</label>
-              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }}>
-                <option value="all">📋 All Types</option>
-                <option value="fire">🔥 Fire</option>
-                <option value="medical">🏥 Medical</option>
-                <option value="crime">🚔 Crime</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontWeight: 600, display: 'block', marginBottom: 8 }}>Response Status</label>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }}>
-                <option value="all">📊 All Statuses</option>
-                <option value="pending">⏳ Pending</option>
-                <option value="responding">🚗 Responding</option>
-                <option value="resolved">✓ Resolved</option>
-              </select>
-            </div>
+        <h1 style={{ margin: "0 0 10px 0", fontSize: "2.8rem", fontWeight: 900, color: "white" }}>🚨 EMERGENCY CONTROL CENTER 🚨</h1>
+        <p style={{ margin: 0, fontSize: "1.1rem", opacity: 0.9 }}>Real-time Crisis Management</p>
+        
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 15, marginTop: 30, maxWidth: 1200, margin: "30px auto 0" }}>
+          <div style={{ background: "rgba(220,38,38,0.2)", padding: 20, borderRadius: 10, border: "2px solid #fca5a5" }}>
+            <div style={{ fontSize: "0.9rem", color: "#fecaca", fontWeight: 700 }}>⏳ PENDING</div>
+            <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#fca5a5" }}>{pending}</div>
+          </div>
+          <div style={{ background: "rgba(59,130,246,0.2)", padding: 20, borderRadius: 10, border: "2px solid #60a5fa" }}>
+            <div style={{ fontSize: "0.9rem", color: "#93c5fd", fontWeight: 700 }}>🚗 RESPONDING</div>
+            <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#60a5fa" }}>{responding}</div>
+          </div>
+          <div style={{ background: "rgba(34,197,94,0.2)", padding: 20, borderRadius: 10, border: "2px solid #4ade80" }}>
+            <div style={{ fontSize: "0.9rem", color: "#86efac", fontWeight: 700 }}>✓ RESOLVED</div>
+            <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#4ade80" }}>{resolved}</div>
+          </div>
+          <div style={{ background: "rgba(251,191,36,0.2)", padding: 20, borderRadius: 10, border: "2px solid #fbbf24" }}>
+            <div style={{ fontSize: "0.9rem", color: "#fcd34d", fontWeight: 700 }}>📡 RESPONSE RATE</div>
+            <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#fbbf24" }}>{responseRate}%</div>
           </div>
         </div>
+      </div>
 
-        {/* Selected Report Detail Modal */}
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "30px 20px" }}>
+        <div style={{ display: "flex", gap: 15, marginBottom: 20, alignItems: "center" }}>
+          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ padding: "10px 15px", borderRadius: 8, border: "2px solid #475569", background: "#0f172a", color: "#e2e8f0", fontWeight: 500, cursor: "pointer" }}>
+            <option value="all">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="responding">Responding</option>
+            <option value="resolved">Resolved</option>
+          </select>
+          <span style={{ color: "#94a3b8" }}>Showing {filtered.length} alert{filtered.length !== 1 ? "s" : ""}</span>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "60px 20px" }}>
+            <p style={{ color: "#94a3b8" }}>Loading alerts...</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
+            <p>No alerts in this category</p>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))", gap: 20 }}>
+            {filtered.map(r => (
+              <div key={r._id} style={{ background: "#1e293b", borderRadius: 12, border: "2px solid #475569", padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 15, alignItems: "center" }}>
+                  <div style={{ fontWeight: 700, color: "#e2e8f0" }}>{r.type.toUpperCase()}</div>
+                  <span style={{ background: r.status === "pending" ? "#ff6b6b" : r.status === "responding" ? "#4dabf7" : "#51cf66", color: "white", padding: "5px 12px", borderRadius: 20, fontSize: "0.85rem", fontWeight: 600 }}>{r.status}</span>
+                </div>
+                <p style={{ color: "#cbd5e1", margin: "0 0 12px 0", lineHeight: 1.5 }}>{r.description}</p>
+                <div style={{ background: "#0f172a", padding: 10, borderRadius: 8, marginBottom: 12, fontSize: "0.85rem", color: "#94a3b8" }}>📍 {r.latitude?.toFixed(4)}, {r.longitude?.toFixed(4)}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {r.status !== "resolved" && <button onClick={() => updateStatus(r._id, r.status === "pending" ? "responding" : "resolved")} style={{ padding: "8px", borderRadius: 6, border: "none", background: "#4dabf7", color: "white", cursor: "pointer", fontWeight: 600 }}>Update Status</button>}
+                  <button onClick={() => setSelectedReport(r)} style={{ padding: "8px", borderRadius: 6, border: "1px solid #3b82f6", background: "transparent", color: "#3b82f6", cursor: "pointer", fontWeight: 600 }}>Details</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {selectedReport && (
-          <div style={{ 
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-            background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1000, padding: 20
-          }}>
-            <div className="card" style={{ maxWidth: 600, maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
-              <button 
-                onClick={() => setSelectedReport(null)}
-                style={{ position: 'absolute', top: 15, right: 15, background: '#f44336', color: 'white', border: 'none', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer', fontWeight: 'bold' }}
-              >
-                ✕
-              </button>
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={() => { setSelectedReport(null); setShowMap(false); }}>
+            <div style={{ background: "#1e293b", borderRadius: 12, maxWidth: 700, padding: 30, border: "2px solid #3b82f6", position: "relative", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+              <button onClick={() => { setSelectedReport(null); setShowMap(false); }} style={{ position: "absolute", top: 15, right: 15, background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "#e2e8f0" }}>✕</button>
+              <h2 style={{ margin: "0 0 15px 0", color: "#e2e8f0", fontSize: "1.5rem" }}>{selectedReport.type.toUpperCase()}</h2>
+              <p style={{ color: "#cbd5e1", marginBottom: 15 }}>{selectedReport.description}</p>
               
-              <h2 style={{ marginBottom: 20 }}>{getEmojis(selectedReport.type)} {selectedReport.type.toUpperCase()}</h2>
-              
-              {/* Status Badge */}
-              <div style={{ background: getStatusColor(selectedReport.status), color: 'white', padding: '10px 15px', borderRadius: '8px', marginBottom: 15, fontWeight: 600 }}>
-                {selectedReport.status.toUpperCase()}
-              </div>
-
-              {/* Location Info with Material Icons */}
-              <div style={{ background: '#e3f2fd', padding: 15, borderRadius: 8, marginBottom: 15, borderLeft: '4px solid #2196f3' }}>
-                <p style={{ margin: '0 0 8px 0', fontWeight: 600, color: '#1565c0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <i className="material-icons" style={{ fontSize: '20px' }}>location_on</i>
-                  Location Coordinates (Live Tracking)
-                </p>
-                <p style={{ margin: '0 0 8px 0', color: '#1565c0' }}>
-                  Latitude: <strong>{selectedReport.latitude?.toFixed(6)}</strong><br/>
-                  Longitude: <strong>{selectedReport.longitude?.toFixed(6)}</strong><br/>
-                  Accuracy: <strong>±{Math.round(selectedReport.accuracy || 0)}m</strong>
-                </p>
-                <a 
-                  href={getGoogleMapsUrl(selectedReport.latitude, selectedReport.longitude)} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  style={{ color: '#2196f3', textDecoration: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+              {/* CLICKABLE LOCATION WITH STREET NAME AND MAP */}
+              <div style={{ background: "#0f172a", padding: 15, borderRadius: 8, marginBottom: 20 }}>
+                <button 
+                  onClick={() => { getStreetName(selectedReport.latitude, selectedReport.longitude); setShowMap(true); }}
+                  style={{ 
+                    background: "#1e40af", 
+                    color: "white", 
+                    border: "none", 
+                    padding: "12px 15px", 
+                    borderRadius: 6, 
+                    cursor: "pointer", 
+                    fontWeight: 600,
+                    width: "100%",
+                    fontSize: "0.95rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px"
+                  }}
                 >
-                  <i className="material-icons" style={{ fontSize: '18px' }}>map</i>
-                  Open in Google Maps →
-                </a>
+                  📍 View Location on Map ({selectedReport.latitude?.toFixed(4)}°, {selectedReport.longitude?.toFixed(4)}°)
+                </button>
+                {loadingLocation && <p style={{ margin: "10px 0 0 0", fontSize: "0.9rem", color: "#fbbf24" }}>Loading location...</p>}
+                {streetName && <p style={{ margin: "10px 0 0 0", fontSize: "1rem", color: "#4ade80", fontWeight: 700 }}>📌 <strong>{streetName}</strong></p>}
               </div>
 
-              {/* Time & Details with Material Icons */}
-              <div style={{ background: '#f5f5f5', padding: 15, borderRadius: 8, marginBottom: 15 }}>
-                <p style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 8px 0' }}>
-                  <i className="material-icons" style={{ fontSize: '18px', color: '#666' }}>schedule</i>
-                  <strong>Reported:</strong> {new Date(selectedReport.created_at).toLocaleString()}
-                </p>
-                <p style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 8px 0' }}>
-                  <i className="material-icons" style={{ fontSize: '18px', color: '#666' }}>warning</i>
-                  <strong>Type:</strong> {selectedReport.type.toUpperCase()}
-                </p>
-                <p style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '0 0 8px 0' }}>
-                  <i className="material-icons" style={{ fontSize: '18px', color: '#666' }}>call</i>
-                  <strong>Responder:</strong> {selectedReport.responderNumber}
-                </p>
-                <p style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', margin: 0 }}>
-                  <i className="material-icons" style={{ fontSize: '18px', color: '#666', marginTop: '4px' }}>description</i>
-                  <span><strong>Description:</strong> {selectedReport.description}</span>
-                </p>
-              </div>
-
-              {/* Voice Message with Material Icons */}
-              {selectedReport.voice_url && (
-                <div style={{ background: '#f3e5f5', padding: 15, borderRadius: 8, marginBottom: 15, borderLeft: '4px solid #9c27b0' }}>
-                  <p style={{ fontWeight: 600, marginBottom: 10, color: '#6a1b9a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className="material-icons" style={{ fontSize: '20px' }}>mic</i>
-                    Voice Message from Victim
+              {/* MAP MODAL */}
+              {showMap && (
+                <div style={{ background: "#0f172a", padding: 15, borderRadius: 8, marginBottom: 20, border: "2px solid #3b82f6" }}>
+                  <h3 style={{ margin: "0 0 12px 0", color: "#fbbf24", fontSize: "1rem" }}>🗺️ Emergency Location</h3>
+                  <div style={{ position: "relative", borderRadius: 8, overflow: "hidden", background: "#1a1f35", height: 350 }}>
+                    <iframe
+                      src={`https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3968.${Math.round(Math.random() * 1000)}!2d${selectedReport.longitude}!3d${selectedReport.latitude}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2s${selectedReport.latitude},${selectedReport.longitude}!5e0!3m2!1sen!2sgh!4v${Date.now()}`}
+                      width="100%"
+                      height="100%"
+                      style={{ border: 0 }}
+                      allowFullScreen=""
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                    />
+                  </div>
+                  <p style={{ margin: "12px 0 0 0", fontSize: "0.85rem", color: "#94a3b8" }}>
+                    ✓ Click on the map to get directions | Accuracy: ±{Math.round(selectedReport.accuracy || 0)}m
                   </p>
-                  <audio controls style={{ width: '100%', minHeight: '40px' }} src={selectedReport.voice_url} />
-                  <p style={{ fontSize: '0.8rem', color: '#6a1b9a', marginTop: '8px', margin: '8px 0 0 0' }}>
-                    🔊 Click play to hear victim's description of the situation
-                  </p>
+                  <button 
+                    onClick={() => window.open(`https://www.google.com/maps/search/${selectedReport.latitude},${selectedReport.longitude}`, "_blank")}
+                    style={{ 
+                      width: "100%", 
+                      marginTop: 12, 
+                      padding: "10px", 
+                      background: "#2196f3", 
+                      color: "white", 
+                      border: "none", 
+                      borderRadius: 6, 
+                      cursor: "pointer", 
+                      fontWeight: 600,
+                      fontSize: "0.9rem"
+                    }}
+                  >
+                    🔗 Open in Google Maps
+                  </button>
                 </div>
               )}
 
-              {/* Media Files with Material Icons */}
+              {/* VOICE MESSAGE PLAYER */}
+              {selectedReport.voice_url && (
+                <div style={{ background: "#0f172a", padding: 15, borderRadius: 8, marginBottom: 20, border: "1px solid #475569" }}>
+                  <p style={{ margin: "0 0 12px 0", fontSize: "0.9rem", color: "#fbbf24", fontWeight: 600 }}>🎤 VOICE MESSAGE</p>
+                  <audio 
+                    controls 
+                    style={{ width: "100%", outline: "none", backgroundColor: "#1a1f35", borderRadius: 6 }}
+                    key={selectedReport.voice_url}
+                  >
+                    <source src={`${process.env.NEXT_PUBLIC_API_BASE}${selectedReport.voice_url}`} type="audio/wav" />
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              )}
+
+              {/* MEDIA GALLERY */}
               {selectedReport.media_urls && selectedReport.media_urls.length > 0 && (
-                <div style={{ background: '#f3e5f5', padding: 15, borderRadius: 8, marginBottom: 15, borderLeft: '4px solid #9c27b0' }}>
-                  <p style={{ fontWeight: 600, marginBottom: 10, color: '#6a1b9a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className="material-icons" style={{ fontSize: '20px' }}>image</i>
-                    Attached Media ({selectedReport.media_count})
-                  </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 10 }}>
-                    {selectedReport.media_urls.map((url, idx) => (
-                      <a key={idx} href={url} target="_blank" rel="noopener noreferrer" style={{ cursor: 'pointer', textDecoration: 'none', position: 'relative' }}>
-                        <div style={{ background: '#ddd', borderRadius: '8px', overflow: 'hidden', aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', transition: 'transform 0.2s' }}>
-                          {url.includes('video') || url.endsWith('.mp4') || url.endsWith('.mov') ? (
-                            <>
-                              <div style={{ background: '#000', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <i className="material-icons" style={{ fontSize: '40px', color: '#fff' }}>play_circle_outline</i>
-                              </div>
-                            </>
+                <div style={{ background: "#0f172a", padding: 15, borderRadius: 8, marginBottom: 20, border: "1px solid #475569" }}>
+                  <p style={{ margin: "0 0 12px 0", fontSize: "0.9rem", color: "#fbbf24", fontWeight: 600 }}>🖼️ MEDIA ({selectedReport.media_urls.length} files)</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+                    {selectedReport.media_urls.map((url, idx) => {
+                      const fullUrl = url.startsWith("http") ? url : `${process.env.NEXT_PUBLIC_API_BASE}${url}`;
+                      const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fullUrl);
+                      const isVideo = /\.(mp4|quicktime|mov|webm)$/i.test(fullUrl);
+                      return (
+                        <div key={idx} style={{ position: "relative", borderRadius: 6, overflow: "hidden", background: "#1a1f35", aspectRatio: "1", border: "1px solid #475569" }}>
+                          {isImage ? (
+                            <img 
+                              src={fullUrl} 
+                              alt={`Media ${idx + 1}`} 
+                              style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} 
+                              onClick={() => window.open(fullUrl, "_blank")}
+                              onError={(e) => { e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext x='50' y='50' fill='white' text-anchor='middle' dy='.3em'%3EError%3C/text%3E%3C/svg%3E"; }}
+                            />
+                          ) : isVideo ? (
+                            <video 
+                              src={fullUrl} 
+                              style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} 
+                              controls
+                              onError={() => console.error("Video failed to load:", fullUrl)}
+                            />
                           ) : (
-                            <i className="material-icons" style={{ fontSize: '40px', color: '#666' }}>image_not_supported</i>
+                            <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: "0.75rem", textAlign: "center", padding: 5 }}>
+                              <a href={fullUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6", textDecoration: "underline" }}>
+                                View File
+                              </a>
+                            </div>
                           )}
                         </div>
-                      </a>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* Action Buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 20 }}>
-                {selectedReport.status !== 'responding' && (
-                  <button 
-                    onClick={() => {
-                      updateStatus(selectedReport._id, 'responding');
-                      setSelectedReport(null);
-                    }}
-                    style={{ padding: '12px', borderRadius: '8px', border: 'none', background: '#2196f3', color: 'white', cursor: 'pointer', fontWeight: 600 }}
-                  >
-                    🚗 Mark Responding
-                  </button>
-                )}
-                {selectedReport.status !== 'resolved' && (
-                  <button 
-                    onClick={() => {
-                      updateStatus(selectedReport._id, 'resolved');
-                      setSelectedReport(null);
-                    }}
-                    style={{ padding: '12px', borderRadius: '8px', border: 'none', background: '#4caf50', color: 'white', cursor: 'pointer', fontWeight: 600 }}
-                  >
-                    ✓ Mark Resolved
-                  </button>
-                )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {selectedReport.status !== "resolved" && <button onClick={() => { setSelectedReport(null); setShowMap(false); }} style={{ padding: "10px", borderRadius: 6, border: "none", background: "#51cf66", color: "white", cursor: "pointer", fontWeight: 600 }}>✓ Resolve</button>}
+                <button onClick={() => { setSelectedReport(null); setShowMap(false); }} style={{ padding: "10px", borderRadius: 6, border: "1px solid #475569", background: "transparent", color: "#94a3b8", cursor: "pointer", fontWeight: 600 }}>Close</button>
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Reports Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 15 }}>
-          {filtered.map(r => (
-            <div key={r._id} className="card" style={{ cursor: 'pointer', transition: 'transform 0.2s', borderLeft: `5px solid ${getStatusColor(r.status)}` }}>
-              <div onClick={() => setSelectedReport(r)}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <h3 style={{ margin: 0 }}>{getEmojis(r.type)} {r.type.toUpperCase()}</h3>
-                  <span style={{ background: getStatusColor(r.status), color: 'white', padding: '4px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 600 }}>
-                    {r.status.toUpperCase()}
-                  </span>
-                </div>
-
-                <p style={{ color: '#666', marginBottom: 10 }}>{r.description}</p>
-
-                <div style={{ background: '#f0f0f0', padding: 10, borderRadius: 8, marginBottom: 10 }}>
-                  <p style={{ margin: '0 0 5px 0', fontSize: '0.85rem' }}>
-                    <strong>📍 Location:</strong> {r.latitude?.toFixed(4)}, {r.longitude?.toFixed(4)}
-                  </p>
-                  <p style={{ margin: '0 0 5px 0', fontSize: '0.85rem' }}>
-                    <strong>🎯 Accuracy:</strong> ±{Math.round(r.accuracy || 0)}m
-                  </p>
-                  <p style={{ margin: 0, fontSize: '0.85rem' }}>
-                    <strong>🕐 Time:</strong> {new Date(r.created_at).toLocaleTimeString()}
-                  </p>
-                </div>
-
-                {/* Media Indicators with Material Icons */}
-                <div style={{ display: 'flex', gap: 8, marginBottom: 10, fontSize: '0.85rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                  {r.voice_url && (
-                    <span style={{ background: '#e1bee7', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px', color: '#6a1b9a', fontWeight: 500 }}>
-                      <i className="material-icons" style={{ fontSize: '16px', display: 'inline' }}>mic</i>
-                      Voice
-                    </span>
-                  )}
-                  {r.media_count > 0 && (
-                    <span style={{ background: '#c5e1a5', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px', color: '#558b2f', fontWeight: 500 }}>
-                      <i className="material-icons" style={{ fontSize: '16px', display: 'inline' }}>image_multiple</i>
-                      {r.media_count} File{r.media_count > 1 ? 's' : ''}
-                    </span>
-                  )}
-                  {r.responderNumber && (
-                    <span style={{ background: '#c8e6c9', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px', color: '#2e7d32', fontWeight: 500 }}>
-                      <i className="material-icons" style={{ fontSize: '16px', display: 'inline' }}>phone</i>
-                      {r.responderNumber}
-                    </span>
-                  )}
-                  <span style={{ background: '#b3e5fc', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px', color: '#01579b', fontWeight: 500 }}>
-                    <i className="material-icons" style={{ fontSize: '16px', display: 'inline' }}>location_on</i>
-                    Live
-                  </span>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                {r.status !== 'responding' && (
-                  <button 
-                    onClick={() => updateStatus(r._id, 'responding')}
-                    style={{ padding: '10px', borderRadius: '6px', border: 'none', background: '#2196f3', color: 'white', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}
-                  >
-                    Respond
-                  </button>
-                )}
-                {r.status !== 'resolved' && (
-                  <button 
-                    onClick={() => updateStatus(r._id, 'resolved')}
-                    style={{ padding: '10px', borderRadius: '6px', border: 'none', background: '#4caf50', color: 'white', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}
-                  >
-                    Resolve
-                  </button>
-                )}
-              </div>
-
-              {/* View Details */}
-              <button 
-                onClick={() => setSelectedReport(r)}
-                style={{ width: '100%', marginTop: 10, padding: '10px', borderRadius: '6px', border: '2px solid #667eea', background: 'white', color: '#667eea', cursor: 'pointer', fontWeight: 600 }}
-              >
-                View Full Details
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {filtered.length === 0 && (
-          <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-            <p style={{ fontSize: '2rem', marginBottom: 10 }}>📭</p>
-            <p style={{ color: '#999' }}>No emergency alerts in this category</p>
           </div>
         )}
       </div>
+
+      <style jsx>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
     </div>
   );
-}
+};
+
+export default Admin;
