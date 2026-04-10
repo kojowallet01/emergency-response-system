@@ -10,14 +10,20 @@ const Admin = () => {
   const [streetName, setStreetName] = useState(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  
+  // Get API base - use environment variable or fallback
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await axios.get(process.env.NEXT_PUBLIC_API_BASE + "/reports");
-        setReports(res.data || []);
+        const res = await axios.get(apiBase + "/reports");
+        const data = res.data || [];
+        // Ensure data is an array
+        setReports(Array.isArray(data) ? data : []);
       } catch (e) {
-        console.error(e);
+        console.error("Error fetching reports:", e);
+        setReports([]); // Set to empty array on error
       } finally {
         setLoading(false);
       }
@@ -29,7 +35,7 @@ const Admin = () => {
 
   const updateStatus = async (id, status) => {
     try {
-      await axios.patch(`${process.env.NEXT_PUBLIC_API_BASE}/report/${id}`, { status });
+      await axios.patch(`${apiBase}/report/${id}`, { status });
       setReports(prev => prev.map(r => r._id === id ? { ...r, status } : r));
     } catch (e) {
       console.error(e);
@@ -72,11 +78,11 @@ const Admin = () => {
     }
   };
 
-  const filtered = reports.filter(r => filter === "all" || r.status === filter);
-  const pending = reports.filter(r => r.status === "pending").length;
-  const responding = reports.filter(r => r.status === "responding").length;
-  const resolved = reports.filter(r => r.status === "resolved").length;
-  const responseRate = reports.length > 0 ? Math.round(((responding + resolved) / reports.length) * 100) : 0;
+  const filtered = Array.isArray(reports) ? reports.filter(r => filter === "all" || r.status === filter) : [];
+  const pending = Array.isArray(reports) ? reports.filter(r => r.status === "pending").length : 0;
+  const responding = Array.isArray(reports) ? reports.filter(r => r.status === "responding").length : 0;
+  const resolved = Array.isArray(reports) ? reports.filter(r => r.status === "resolved").length : 0;
+  const responseRate = Array.isArray(reports) && reports.length > 0 ? Math.round(((responding + resolved) / reports.length) * 100) : 0;
 
   return (
     <div style={{ background: "linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%)", minHeight: "100vh", color: "#e2e8f0" }}>
@@ -230,7 +236,7 @@ const Admin = () => {
                     style={{ width: "100%", outline: "none", backgroundColor: "#1a1f35", borderRadius: 6 }}
                     key={selectedReport.voice_url}
                   >
-                    <source src={`${process.env.NEXT_PUBLIC_API_BASE}${selectedReport.voice_url}`} type="audio/wav" />
+                    <source src={`${apiBase}${selectedReport.voice_url}`} type="audio/wav" />
                     Your browser does not support the audio element.
                   </audio>
                 </div>
@@ -242,7 +248,7 @@ const Admin = () => {
                   <p style={{ margin: "0 0 12px 0", fontSize: "0.9rem", color: "#fbbf24", fontWeight: 600 }}>🖼️ MEDIA ({selectedReport.media_urls.length} files)</p>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
                     {selectedReport.media_urls.map((url, idx) => {
-                      const fullUrl = url.startsWith("http") ? url : `${process.env.NEXT_PUBLIC_API_BASE}${url}`;
+                      const fullUrl = url.startsWith("http") ? url : `${apiBase}${url}`;
                       const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fullUrl);
                       const isVideo = /\.(mp4|quicktime|mov|webm)$/i.test(fullUrl);
                       return (
