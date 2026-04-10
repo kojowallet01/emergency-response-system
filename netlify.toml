@@ -6,17 +6,36 @@
   command = "cd frontend && npm run dev"
   port = 3000
 
+# Redirect all non-file requests to index.html for client-side routing
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
+# Cache static assets
 [[headers]]
   for = "/_next/static/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# Don't cache HTML files - they change frequently
 [[headers]]
-  for = "/index.html"
+  for = "/*.html"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+# Specific routes
+[[redirects]]
+  from = "/admin"
+  to = "/admin/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/reports"
+  to = "/reports/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/user"
+  to = "/user/index.html"
+  status = 200
