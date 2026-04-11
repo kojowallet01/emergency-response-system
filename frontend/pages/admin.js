@@ -13,8 +13,15 @@ const Admin = () => {
   
   // Get API base - use environment variable or fallback
   const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+  const apiConfigured = Boolean(process.env.NEXT_PUBLIC_API_BASE);
 
   useEffect(() => {
+    if (!apiConfigured) {
+      setLoading(false);
+      setReports([]);
+      return;
+    }
+
     const load = async () => {
       try {
         const res = await axios.get(apiBase + "/reports");
@@ -34,6 +41,11 @@ const Admin = () => {
   }, []);
 
   const updateStatus = async (id, status) => {
+    if (!apiConfigured) {
+      alert("API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.");
+      return;
+    }
+
     try {
       await axios.patch(`${apiBase}/report/${id}`, { status });
       setReports(prev => prev.map(r => r._id === id ? { ...r, status } : r));
@@ -119,6 +131,12 @@ const Admin = () => {
       </div>
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "30px 20px" }}>
+        {!apiConfigured && (
+          <div style={{ background: "#ffebee", color: "#b71c1c", border: "2px solid #ef5350", borderRadius: 10, padding: 12, marginBottom: 20, fontSize: "0.9rem", fontWeight: 700 }}>
+            API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 15, marginBottom: 20, alignItems: "center" }}>
           <select value={filter} onChange={e => setFilter(e.target.value)} style={{ padding: "10px 15px", borderRadius: 8, border: "2px solid #475569", background: "#0f172a", color: "#e2e8f0", fontWeight: 500, cursor: "pointer" }}>
             <option value="all">All Statuses</option>

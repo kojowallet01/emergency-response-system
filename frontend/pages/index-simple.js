@@ -2,12 +2,19 @@ import { useState } from 'react';
 import axios from 'axios';
 
 export default function Home(){
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+  const apiConfigured = Boolean(process.env.NEXT_PUBLIC_API_BASE);
   const [state, setState] = useState('idle');
   const [desc, setDesc] = useState('');
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
 
   const send = async (type) => {
+    if (!apiConfigured) {
+      alert('API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.');
+      return;
+    }
+
     setState('sending');
     try {
       const pos = await new Promise((res, rej) =>
@@ -21,7 +28,7 @@ export default function Home(){
       form.append('description', desc);
       if (file) form.append('image', file);
 
-      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_BASE}/report`, form);
+      const res = await axios.post(`${apiBase}/report`, form);
       setResult(res.data);
       setState('success');
     } catch (e) {
@@ -56,6 +63,12 @@ export default function Home(){
       <p className="subtitle">Ghana Emergency Response System</p>
       
       <div className="card">
+        {!apiConfigured && (
+          <div style={{ background: '#ffebee', color: '#b71c1c', border: '2px solid #ef5350', borderRadius: 10, padding: 12, marginBottom: 15, fontSize: '0.9rem', fontWeight: 600 }}>
+            API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
+          </div>
+        )}
+
         <p className="small" style={{ marginBottom: 15 }}>Tap an emergency button to alert responders</p>
         
         <div className="row">

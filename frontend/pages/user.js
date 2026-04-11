@@ -5,12 +5,19 @@ import axios from 'axios';
 const MapView = dynamic(() => import('../components/MapView'), { ssr: false });
 
 export default function User(){
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+  const apiConfigured = Boolean(process.env.NEXT_PUBLIC_API_BASE);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(null);
   const [desc, setDesc] = useState('');
   const [file, setFile] = useState(null);
 
   async function send(type){
+    if (!apiConfigured) {
+      alert('API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.');
+      return;
+    }
+
     setSending(true);
     try{
       const pos = await new Promise((res, rej)=>navigator.geolocation.getCurrentPosition(res, rej, {enableHighAccuracy:true, timeout:10000}));
@@ -22,7 +29,7 @@ export default function User(){
       form.append('description', desc);
       if (file) form.append('image', file);
 
-      const res = await axios.post(process.env.NEXT_PUBLIC_API_BASE + '/report', form, { headers: {'Content-Type':'multipart/form-data'} });
+      const res = await axios.post(apiBase + '/report', form, { headers: {'Content-Type':'multipart/form-data'} });
       setSent(res.data);
     }catch(e){
       console.error(e);
@@ -54,6 +61,12 @@ export default function User(){
       <p className="subtitle">Ghana Emergency Response System - Tap to alert emergency services</p>
       
       <div className="card">
+        {!apiConfigured && (
+          <div style={{ background: '#ffebee', color: '#b71c1c', border: '2px solid #ef5350', borderRadius: 10, padding: 12, marginBottom: 15, fontSize: '0.9rem', fontWeight: 600 }}>
+            API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
+          </div>
+        )}
+
         <p className="small" style={{marginBottom:15, color:'#666'}}>Select the type of emergency and we'll alert the nearest responders with your location</p>
         
         <div className="row">

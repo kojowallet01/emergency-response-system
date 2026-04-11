@@ -9,6 +9,8 @@ const EMERGENCY_NUMBERS = {
 };
 
 export default function Home(){
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+  const apiConfigured = Boolean(process.env.NEXT_PUBLIC_API_BASE);
   const [state, setState] = useState('idle'); // idle, details, sending, success
   const [result, setResult] = useState(null);
   const [responderInfo, setResponderInfo] = useState(null);
@@ -33,6 +35,11 @@ export default function Home(){
 
   // Get location first when emergency button is pressed
   const handleEmergencyClick = async (type) => {
+    if (!apiConfigured) {
+      alert('API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.');
+      return;
+    }
+
     setState('details');
     setEmergencyType(type);
     
@@ -139,6 +146,11 @@ export default function Home(){
   };
 
   const send = async () => {
+    if (!apiConfigured) {
+      alert('API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.');
+      return;
+    }
+
     if (!emergencyType || !userLocation) {
       alert('Missing location data');
       return;
@@ -166,7 +178,7 @@ export default function Home(){
         form.append('media', file);
       });
 
-      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_BASE}/report`, form, {
+      const res = await axios.post(`${apiBase}/report`, form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
@@ -186,6 +198,12 @@ export default function Home(){
     return (
       <div className="container">
         <div className="card">
+            {!apiConfigured && (
+              <div style={{ background: '#ffebee', color: '#b71c1c', border: '2px solid #ef5350', borderRadius: 10, padding: 12, marginBottom: 15, fontSize: '0.9rem', fontWeight: 600 }}>
+                API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
+              </div>
+            )}
+
           <div style={{ textAlign: 'center', marginBottom: 30, background: `linear-gradient(135deg, ${EMERGENCY_NUMBERS[emergencyType].color} 0%, ${EMERGENCY_NUMBERS[emergencyType].color}dd 100%)`, padding: 30, borderRadius: 15, color: 'white' }}>
             <div style={{ fontSize: '3.5rem', marginBottom: 15, animation: 'pulse 2s infinite' }}>
               {EMERGENCY_NUMBERS[emergencyType].icon}
@@ -330,6 +348,7 @@ export default function Home(){
             </button>
             <button 
               onClick={send}
+              disabled={!apiConfigured}
               style={{ padding: '12px', borderRadius: '8px', border: 'none', background: '#4caf50', color: 'white', cursor: 'pointer', fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
               <i className="material-icons" style={{ fontSize: '18px' }}>send</i>
@@ -622,6 +641,12 @@ export default function Home(){
       <p className="subtitle" style={{ textAlign: 'center', fontSize: '1rem', color: '#e0e0e0', marginBottom: 30 }}>Ghana Emergency Response Network - Live Tracking Enabled</p>
       
       <div className="card">
+        {!apiConfigured && (
+          <div style={{ background: '#ffebee', color: '#b71c1c', border: '2px solid #ef5350', borderRadius: 10, padding: 12, marginBottom: 15, fontSize: '0.9rem', fontWeight: 600 }}>
+            API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
+          </div>
+        )}
+
         <p style={{ marginBottom: 25, color: '#333', textAlign: 'center', fontSize: '1rem', lineHeight: 1.6 }}>
           🔴 Press the button for your emergency type<br/>
           ⚡ Add voice message & photos for faster response<br/>
