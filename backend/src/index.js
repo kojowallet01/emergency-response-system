@@ -30,6 +30,9 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
+// Health check for Render
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
 // Multer setup for multiple files
 const storage = multer.diskStorage({
   destination: uploadsDir,

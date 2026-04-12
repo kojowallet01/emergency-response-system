@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: emergency-response-backend
+    runtime: node
+    region: frankfurt
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
