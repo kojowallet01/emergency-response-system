@@ -10,25 +10,14 @@ const Reports = () => {
   const [sortBy, setSortBy] = useState("date-desc");
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
-  const apiConfigured = Boolean(process.env.NEXT_PUBLIC_API_BASE);
 
   useEffect(() => {
-    if (!apiConfigured) {
-      setLoading(false);
-      setReports([]);
-      return;
-    }
-
     fetchReports();
     const interval = setInterval(fetchReports, 5000);
     return () => clearInterval(interval);
   }, []);
 
   const fetchReports = async () => {
-    if (!apiConfigured) {
-      return;
-    }
-
     try {
       const res = await axios.get(`${API_BASE}/reports`);
       setReports(res.data);
@@ -222,12 +211,6 @@ const Reports = () => {
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f172a 0%, #1a1f35 100%)", color: "#e2e8f0", padding: "20px" }}>
       <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
-        {!apiConfigured && (
-          <div style={{ background: "#ffebee", color: "#b71c1c", border: "2px solid #ef5350", borderRadius: 10, padding: 12, marginBottom: 20, fontSize: "0.9rem", fontWeight: 700 }}>
-            API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
-          </div>
-        )}
-
         {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 40 }}>
           <h1 style={{ fontSize: "2.5rem", margin: "0 0 10px 0", color: "#60a5fa" }}>

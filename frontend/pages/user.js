@@ -3,25 +3,109 @@ import dynamic from 'next/dynamic';
 import axios from 'axios';
 
 const MapView = dynamic(() => import('../components/MapView'), { ssr: false });
+const MAX_LOCATION_ACCURACY_METERS = 500;
+const TARGET_LOCATION_ACCURACY_METERS = 100;
+const LOCATION_COLLECTION_WINDOW_MS = 18000;
 
 export default function User(){
   const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
-  const apiConfigured = Boolean(process.env.NEXT_PUBLIC_API_BASE);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(null);
   const [desc, setDesc] = useState('');
   const [file, setFile] = useState(null);
 
-  async function send(type){
-    if (!apiConfigured) {
-      alert('API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.');
-      return;
+  const getCurrentPosition = (options) =>
+    new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, options));
+
+  const getBestLocationFix = async () => {
+    if (!navigator.geolocation) {
+      throw new Error('Geolocation is not supported on this device.');
     }
 
+    const watchedFix = await new Promise((resolve, reject) => {
+      let best = null;
+      let settled = false;
+      let watchId = null;
+      let lastError = null;
+
+      const finalize = (result) => {
+        if (settled) return;
+        settled = true;
+        if (watchId !== null) {
+          navigator.geolocation.clearWatch(watchId);
+        }
+        clearTimeout(timer);
+
+        if (result) {
+          resolve(result);
+        } else {
+          reject(lastError || new Error('Unable to get location'));
+        }
+      };
+
+      const timer = setTimeout(() => finalize(best), LOCATION_COLLECTION_WINDOW_MS);
+
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) {
+            best = pos;
+          }
+          if ((best.coords.accuracy || Infinity) <= TARGET_LOCATION_ACCURACY_METERS) {
+            finalize(best);
+          }
+        },
+        (err) => {
+          lastError = err;
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }).catch(() => null);
+
+    if (watchedFix) {
+      return watchedFix;
+    }
+
+    const fallbackAttempts = [
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+    ];
+
+    let best = null;
+    let lastError = null;
+    for (const options of fallbackAttempts) {
+      try {
+        const pos = await getCurrentPosition(options);
+        if (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) {
+          best = pos;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (!best) {
+      throw lastError || new Error('Unable to get location');
+    }
+    return best;
+  };
+
+  async function send(type){
     setSending(true);
     try{
-      const pos = await new Promise((res, rej)=>navigator.geolocation.getCurrentPosition(res, rej, {enableHighAccuracy:true, timeout:10000}));
+      const pos = await getBestLocationFix();
       const { latitude, longitude } = pos.coords;
+      const accuracy = pos.coords.accuracy || Infinity;
+
+      if (accuracy > MAX_LOCATION_ACCURACY_METERS) {
+        const proceed = window.confirm(
+          `Location signal is weak (±${Math.round(accuracy)}m). This may place responders far away. Press OK to send anyway or Cancel to retry GPS.`
+        );
+        if (!proceed) {
+          setSending(false);
+          return;
+        }
+      }
+
       const form = new FormData();
       form.append('type', type);
       form.append('latitude', latitude);
@@ -29,11 +113,39 @@ export default function User(){
       form.append('description', desc);
       if (file) form.append('image', file);
 
-      const res = await axios.post(apiBase + '/report', form, { headers: {'Content-Type':'multipart/form-data'} });
+      const normalizedBase = apiBase.replace(/\/+$/, '');
+      const candidates = [
+        `${normalizedBase}/report`,
+        `${normalizedBase}/api/report`,
+        ...(normalizedBase.endsWith('/api') ? [`${normalizedBase.slice(0, -4)}/report`] : [])
+      ];
+      const reportUrls = [...new Set(candidates)];
+
+      let res;
+      let lastError;
+      for (const reportUrl of reportUrls) {
+        try {
+          res = await axios.post(reportUrl, form, { headers: {'Content-Type':'multipart/form-data'} });
+          break;
+        } catch (err) {
+          lastError = err;
+          const status = err?.response?.status;
+          if (status && status !== 404) {
+            break;
+          }
+        }
+      }
+
+      if (!res) {
+        throw lastError || new Error('Unable to reach report endpoint');
+      }
+
       setSent(res.data);
     }catch(e){
       console.error(e);
-      alert('Failed to send alert. Check location permissions and network.');
+      const status = e?.response?.status;
+      const details = status ? `status ${status}` : e.message;
+      alert(`Failed to send alert (${details}). Check location permission and NEXT_PUBLIC_API_BASE.`);
     }finally{setSending(false)}
   }
 
@@ -61,12 +173,6 @@ export default function User(){
       <p className="subtitle">Ghana Emergency Response System - Tap to alert emergency services</p>
       
       <div className="card">
-        {!apiConfigured && (
-          <div style={{ background: '#ffebee', color: '#b71c1c', border: '2px solid #ef5350', borderRadius: 10, padding: 12, marginBottom: 15, fontSize: '0.9rem', fontWeight: 600 }}>
-            API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
-          </div>
-        )}
-
         <p className="small" style={{marginBottom:15, color:'#666'}}>Select the type of emergency and we'll alert the nearest responders with your location</p>
         
         <div className="row">

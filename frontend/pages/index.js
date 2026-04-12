@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect } from 'react';
+﻿import { useState, useRef } from 'react';
 import axios from 'axios';
 
 // Ghana Emergency Numbers
@@ -8,14 +8,27 @@ const EMERGENCY_NUMBERS = {
   crime: { number: '191', service: 'Ghana Police Service', icon: '🚔', color: '#ff9800' }
 };
 
+const MAX_LOCATION_ACCURACY_METERS = 500;
+const TARGET_LOCATION_ACCURACY_METERS = 100;
+const LOCATION_COLLECTION_WINDOW_MS = 18000;
+const GOOGLE_MAPS_SCRIPT_ID = 'google-maps-places-script';
+
 export default function Home(){
   const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
-  const apiConfigured = Boolean(process.env.NEXT_PUBLIC_API_BASE);
+  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY || '';
   const [state, setState] = useState('idle'); // idle, details, sending, success
   const [result, setResult] = useState(null);
   const [responderInfo, setResponderInfo] = useState(null);
   const [emergencyType, setEmergencyType] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
+  const [manualAddress, setManualAddress] = useState('');
+  const [resolvingAddress, setResolvingAddress] = useState(false);
+  const [addressMessage, setAddressMessage] = useState('');
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationCountdown, setLocationCountdown] = useState(Math.ceil(LOCATION_COLLECTION_WINDOW_MS / 1000));
+  const [locationStatus, setLocationStatus] = useState('');
   
   // Voice recording
   const [isRecording, setIsRecording] = useState(false);
@@ -32,29 +45,181 @@ export default function Home(){
   const [cameraStream, setCameraStream] = useState(null);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const locationWatchRef = useRef(null);
+  const locationTimeoutRef = useRef(null);
+  const locationIntervalRef = useRef(null);
+  const suggestionTimerRef = useRef(null);
+  const googleAutocompleteServiceRef = useRef(null);
+
+  const getCurrentPosition = (options) =>
+    new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, options));
+
+  const ensureGooglePlacesLoaded = async () => {
+    if (!googleMapsApiKey || typeof window === 'undefined') {
+      return false;
+    }
+
+    if (window.google?.maps?.places?.AutocompleteService) {
+      if (!googleAutocompleteServiceRef.current) {
+        googleAutocompleteServiceRef.current = new window.google.maps.places.AutocompleteService();
+      }
+      return true;
+    }
+
+    const existingScript = document.getElementById(GOOGLE_MAPS_SCRIPT_ID);
+    if (!existingScript) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.id = GOOGLE_MAPS_SCRIPT_ID;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}&libraries=places`;
+        script.async = true;
+        script.defer = true;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      }).catch(() => false);
+    } else if (!window.google?.maps?.places?.AutocompleteService) {
+      await new Promise((resolve, reject) => {
+        existingScript.addEventListener('load', resolve, { once: true });
+        existingScript.addEventListener('error', reject, { once: true });
+      }).catch(() => false);
+    }
+
+    if (window.google?.maps?.places?.AutocompleteService) {
+      googleAutocompleteServiceRef.current = new window.google.maps.places.AutocompleteService();
+      return true;
+    }
+
+    return false;
+  };
+
+  const clearLocationTracking = () => {
+    if (locationWatchRef.current !== null) {
+      navigator.geolocation.clearWatch(locationWatchRef.current);
+      locationWatchRef.current = null;
+    }
+    if (locationTimeoutRef.current) {
+      clearTimeout(locationTimeoutRef.current);
+      locationTimeoutRef.current = null;
+    }
+    if (locationIntervalRef.current) {
+      clearInterval(locationIntervalRef.current);
+      locationIntervalRef.current = null;
+    }
+  };
+
+  const getBestLocationFix = async (onProgress) => {
+    if (!navigator.geolocation) {
+      throw new Error('Geolocation is not supported on this device.');
+    }
+
+    clearLocationTracking();
+
+    const watchedFix = await new Promise((resolve, reject) => {
+      let best = null;
+      let settled = false;
+      let lastError = null;
+      const startedAt = Date.now();
+
+      const finalize = (result) => {
+        if (settled) return;
+        settled = true;
+        clearLocationTracking();
+
+        if (result) {
+          resolve(result);
+        } else {
+          reject(lastError || new Error('Unable to get location'));
+        }
+      };
+
+      const updateProgress = () => {
+        const elapsedMs = Date.now() - startedAt;
+        const remainingSeconds = Math.max(0, Math.ceil((LOCATION_COLLECTION_WINDOW_MS - elapsedMs) / 1000));
+        if (onProgress) {
+          onProgress({
+            remainingSeconds,
+            bestAccuracy: best?.coords?.accuracy || null
+          });
+        }
+      };
+
+      updateProgress();
+      locationIntervalRef.current = setInterval(updateProgress, 400);
+      locationTimeoutRef.current = setTimeout(() => finalize(best), LOCATION_COLLECTION_WINDOW_MS);
+
+      locationWatchRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) {
+            best = pos;
+            updateProgress();
+          }
+          if ((best.coords.accuracy || Infinity) <= TARGET_LOCATION_ACCURACY_METERS) {
+            finalize(best);
+          }
+        },
+        (err) => {
+          lastError = err;
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }).catch(() => null);
+
+    if (watchedFix) {
+      return watchedFix;
+    }
+
+    const fallbackAttempts = [
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+    ];
+
+    let best = null;
+    let lastError = null;
+    for (const options of fallbackAttempts) {
+      try {
+        const pos = await getCurrentPosition(options);
+        if (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) {
+          best = pos;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (!best) {
+      throw lastError || new Error('Unable to get location');
+    }
+    return best;
+  };
 
   // Get location first when emergency button is pressed
   const handleEmergencyClick = async (type) => {
-    if (!apiConfigured) {
-      alert('API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.');
-      return;
-    }
-
     setState('details');
     setEmergencyType(type);
+    setUserLocation(null);
+    setLocationCountdown(Math.ceil(LOCATION_COLLECTION_WINDOW_MS / 1000));
+    setLocationStatus('Acquiring high-accuracy GPS...');
+    setIsLocating(true);
     
     try {
-      const pos = await new Promise((res, rej) =>
-        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 })
-      );
+      const pos = await getBestLocationFix(({ remainingSeconds, bestAccuracy }) => {
+        setLocationCountdown(remainingSeconds);
+        if (bestAccuracy) {
+          setLocationStatus(`Best accuracy so far: ±${Math.round(bestAccuracy)}m`);
+        }
+      });
       setUserLocation({
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
         accuracy: pos.coords.accuracy
       });
+      setLocationStatus(`GPS locked at ±${Math.round(pos.coords.accuracy || 0)}m`);
     } catch (e) {
       alert('Unable to get location. Please enable location permission.');
       setState('idle');
+    } finally {
+      setIsLocating(false);
     }
   };
 
@@ -145,12 +310,95 @@ export default function Home(){
     setShowCamera(false);
   };
 
-  const send = async () => {
-    if (!apiConfigured) {
-      alert('API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.');
+  const useAddressLocation = async (addressOverride) => {
+    const targetAddress = String(addressOverride || manualAddress).trim();
+
+    if (!targetAddress) {
+      alert('Enter an address first.');
       return;
     }
 
+    setResolvingAddress(true);
+    setAddressMessage('Finding address on map...');
+
+    try {
+      const response = await axios.get(`${apiBase.replace(/\/+$/, '')}/geocode/resolve`, {
+        params: { address: targetAddress }
+      });
+
+      const first = response.data;
+      if (!first || !Number.isFinite(Number(first.latitude)) || !Number.isFinite(Number(first.longitude))) {
+        setAddressMessage('Address not found. Try adding city/landmark (e.g. Accra).');
+        return;
+      }
+
+      const lat = Number(first.latitude);
+      const lon = Number(first.longitude);
+
+      setUserLocation({
+        latitude: lat,
+        longitude: lon,
+        accuracy: 50
+      });
+      setManualAddress(first.label);
+      setAddressMessage(`Address locked: ${first.label}`);
+      setLocationStatus('Using address-based location');
+      setIsLocating(false);
+      setAddressSuggestions([]);
+      clearLocationTracking();
+    } catch (e) {
+      console.error('Address geocode failed:', e);
+      setAddressMessage('Unable to resolve address right now. Try again.');
+    } finally {
+      setResolvingAddress(false);
+    }
+  };
+
+  const loadAddressSuggestions = async (query) => {
+    if (query.trim().length < 3) {
+      setAddressSuggestions([]);
+      return;
+    }
+
+    setIsLoadingSuggestions(true);
+    try {
+      const hasGooglePlaces = await ensureGooglePlacesLoaded();
+      if (hasGooglePlaces && googleAutocompleteServiceRef.current) {
+        const predictions = await new Promise((resolve) => {
+          googleAutocompleteServiceRef.current.getPlacePredictions(
+            {
+              input: query,
+              componentRestrictions: { country: 'gh' },
+              types: ['geocode']
+            },
+            (results) => resolve(Array.isArray(results) ? results : [])
+          );
+        });
+
+        if (predictions.length) {
+          setAddressSuggestions(predictions.slice(0, 5).map((item) => ({
+            label: item.description,
+            placeId: item.place_id,
+            source: 'google-places'
+          })));
+          setIsLoadingSuggestions(false);
+          return;
+        }
+      }
+
+      const response = await axios.get(`${apiBase.replace(/\/+$/, '')}/geocode/suggest`, {
+        params: { q: query }
+      });
+      setAddressSuggestions(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      console.error('Suggestion lookup failed:', err);
+      setAddressSuggestions([]);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+
+  const send = async () => {
     if (!emergencyType || !userLocation) {
       alert('Missing location data');
       return;
@@ -178,9 +426,34 @@ export default function Home(){
         form.append('media', file);
       });
 
-      const res = await axios.post(`${apiBase}/report`, form, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const normalizedBase = apiBase.replace(/\/+$/, '');
+      const candidates = [
+        `${normalizedBase}/report`,
+        `${normalizedBase}/api/report`,
+        ...(normalizedBase.endsWith('/api') ? [`${normalizedBase.slice(0, -4)}/report`] : [])
+      ];
+      const reportUrls = [...new Set(candidates)];
+
+      let res;
+      let lastError;
+      for (const reportUrl of reportUrls) {
+        try {
+          res = await axios.post(reportUrl, form, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          break;
+        } catch (err) {
+          lastError = err;
+          const status = err?.response?.status;
+          if (status && status !== 404) {
+            break;
+          }
+        }
+      }
+
+      if (!res) {
+        throw lastError || new Error('Unable to reach report endpoint');
+      }
       
       setResult(res.data);
       setResponderInfo(emergency);
@@ -189,7 +462,9 @@ export default function Home(){
       setState('success');
     } catch (e) {
       console.error(e);
-      alert('Failed to send alert: ' + e.message);
+      const status = e?.response?.status;
+      const details = status ? `status ${status}` : e.message;
+      alert(`Failed to send alert (${details}). Check NEXT_PUBLIC_API_BASE in frontend/.env.local.`);
       setState('details');
     }
   };
@@ -198,12 +473,6 @@ export default function Home(){
     return (
       <div className="container">
         <div className="card">
-            {!apiConfigured && (
-              <div style={{ background: '#ffebee', color: '#b71c1c', border: '2px solid #ef5350', borderRadius: 10, padding: 12, marginBottom: 15, fontSize: '0.9rem', fontWeight: 600 }}>
-                API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
-              </div>
-            )}
-
           <div style={{ textAlign: 'center', marginBottom: 30, background: `linear-gradient(135deg, ${EMERGENCY_NUMBERS[emergencyType].color} 0%, ${EMERGENCY_NUMBERS[emergencyType].color}dd 100%)`, padding: 30, borderRadius: 15, color: 'white' }}>
             <div style={{ fontSize: '3.5rem', marginBottom: 15, animation: 'pulse 2s infinite' }}>
               {EMERGENCY_NUMBERS[emergencyType].icon}
@@ -211,7 +480,7 @@ export default function Home(){
             <h2 style={{ margin: '0 0 10px 0', fontSize: '1.8rem', fontWeight: 700 }}>{EMERGENCY_NUMBERS[emergencyType].service}</h2>
             <p style={{ margin: 0, fontSize: '1rem', opacity: 0.95 }}>Emergency Alert System Active</p>
             <p style={{ marginTop: 12, fontSize: '0.9rem', opacity: 0.85 }}>
-              📍 {userLocation?.latitude.toFixed(4)}°, {userLocation?.longitude.toFixed(4)}°
+              {userLocation ? `📍 ${userLocation.latitude.toFixed(4)}°, ${userLocation.longitude.toFixed(4)}` : '📡 Locating...'}
             </p>
           </div>
 
@@ -221,11 +490,95 @@ export default function Home(){
               <i className="material-icons" style={{ fontSize: '22px', color: '#1565c0', marginTop: '2px' }}>location_on</i>
               <div style={{ flex: 1 }}>
                 <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#1565c0', fontWeight: 600 }}>
-                  <strong>Accuracy: ±{Math.round(userLocation?.accuracy || 0)}m</strong>
+                  <strong>Accuracy: {userLocation ? `±${Math.round(userLocation?.accuracy || 0)}m` : 'Acquiring...'}</strong>
                 </p>
                 <p style={{ margin: 0, fontSize: '0.85rem', color: '#1565c0' }}>
-                  ✓ High precision location shared with responders
+                  {isLocating ? `Collecting GPS fixes... ${locationCountdown}s left.` : locationStatus || 'Tap Refresh GPS to improve signal before sending.'}
                 </p>
+                <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => handleEmergencyClick(emergencyType)}
+                    disabled={isLocating}
+                    style={{ background: '#1565c0', color: 'white', border: 'none', borderRadius: 8, padding: '9px 12px', cursor: isLocating ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.82rem', opacity: isLocating ? 0.7 : 1 }}
+                  >
+                    {isLocating ? 'Refreshing GPS...' : 'Refresh GPS'}
+                  </button>
+                  {userLocation && (
+                    <span style={{ alignSelf: 'center', fontSize: '0.8rem', color: userLocation.accuracy <= MAX_LOCATION_ACCURACY_METERS ? '#1b5e20' : '#b71c1c', fontWeight: 700 }}>
+                      {userLocation.accuracy <= MAX_LOCATION_ACCURACY_METERS ? 'Ready to send' : 'Weak signal - sending allowed'}
+                    </span>
+                  )}
+                </div>
+                <div style={{ marginTop: 12, background: '#ffffff', borderRadius: 8, border: '1px solid #bbdefb', padding: 10 }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: '0.82rem', color: '#0d47a1', fontWeight: 700 }}>
+                    If GPS is wrong, set location by address
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+                    <input
+                      type="text"
+                      value={manualAddress}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setManualAddress(next);
+                        setAddressMessage('');
+                        if (suggestionTimerRef.current) {
+                          clearTimeout(suggestionTimerRef.current);
+                        }
+                        suggestionTimerRef.current = setTimeout(() => {
+                          loadAddressSuggestions(next);
+                        }, 350);
+                      }}
+                      placeholder="e.g. 72 Aladjo Road, Accra"
+                      style={{ margin: 0, borderRadius: 8, border: '1px solid #90caf9', padding: '10px', fontSize: '0.85rem' }}
+                    />
+                    <button
+                      onClick={() => useAddressLocation()}
+                      disabled={resolvingAddress}
+                      style={{ background: '#0d47a1', color: 'white', border: 'none', borderRadius: 8, padding: '10px 12px', cursor: resolvingAddress ? 'not-allowed' : 'pointer', opacity: resolvingAddress ? 0.7 : 1, fontWeight: 700, fontSize: '0.8rem' }}
+                    >
+                      {resolvingAddress ? 'Finding...' : 'Use Address'}
+                    </button>
+                  </div>
+                  {isLoadingSuggestions && (
+                    <p style={{ margin: '8px 0 0 0', fontSize: '0.78rem', color: '#0d47a1' }}>
+                      Getting Google Maps street suggestions...
+                    </p>
+                  )}
+                  {addressSuggestions.length > 0 && (
+                    <div style={{ marginTop: 8, border: '1px solid #bbdefb', borderRadius: 8, maxHeight: 180, overflowY: 'auto', background: '#fff' }}>
+                      {addressSuggestions.map((item, idx) => (
+                        <button
+                          key={`${item.label}-${idx}`}
+                          onClick={() => {
+                            setManualAddress(item.label);
+                            setAddressSuggestions([]);
+                            if (item.placeId) {
+                              useAddressLocation(item.label);
+                              return;
+                            }
+                            setUserLocation({
+                              latitude: Number(item.latitude),
+                              longitude: Number(item.longitude),
+                              accuracy: 50
+                            });
+                            setLocationStatus(`Using ${item.source || 'suggested'} address location`);
+                            setAddressMessage(`Address locked: ${item.label}`);
+                            setIsLocating(false);
+                            clearLocationTracking();
+                          }}
+                          style={{ width: '100%', textAlign: 'left', background: '#fff', border: 'none', borderBottom: idx < addressSuggestions.length - 1 ? '1px solid #e3f2fd' : 'none', padding: '9px 10px', cursor: 'pointer', fontSize: '0.82rem', color: '#0d47a1' }}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {addressMessage && (
+                    <p style={{ margin: '8px 0 0 0', fontSize: '0.78rem', color: '#0d47a1' }}>
+                      {addressMessage}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -337,6 +690,8 @@ export default function Home(){
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <button 
               onClick={() => {
+                clearLocationTracking();
+                setIsLocating(false);
                 setState('idle');
                 setEmergencyType(null);
                 setVoiceBlob(null);
@@ -348,8 +703,8 @@ export default function Home(){
             </button>
             <button 
               onClick={send}
-              disabled={!apiConfigured}
-              style={{ padding: '12px', borderRadius: '8px', border: 'none', background: '#4caf50', color: 'white', cursor: 'pointer', fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              disabled={!userLocation}
+              style={{ padding: '12px', borderRadius: '8px', border: 'none', background: '#4caf50', color: 'white', cursor: !userLocation ? 'not-allowed' : 'pointer', opacity: !userLocation ? 0.65 : 1, fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
               <i className="material-icons" style={{ fontSize: '18px' }}>send</i>
               Send Alert Now
@@ -641,12 +996,6 @@ export default function Home(){
       <p className="subtitle" style={{ textAlign: 'center', fontSize: '1rem', color: '#e0e0e0', marginBottom: 30 }}>Ghana Emergency Response Network - Live Tracking Enabled</p>
       
       <div className="card">
-        {!apiConfigured && (
-          <div style={{ background: '#ffebee', color: '#b71c1c', border: '2px solid #ef5350', borderRadius: 10, padding: 12, marginBottom: 15, fontSize: '0.9rem', fontWeight: 600 }}>
-            API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
-          </div>
-        )}
-
         <p style={{ marginBottom: 25, color: '#333', textAlign: 'center', fontSize: '1rem', lineHeight: 1.6 }}>
           🔴 Press the button for your emergency type<br/>
           ⚡ Add voice message & photos for faster response<br/>

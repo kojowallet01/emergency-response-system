@@ -14,6 +14,7 @@ const { Server } = require('socket.io');
 const io = new Server(server, { cors: { origin: '*' } });
 
 const PORT = process.env.PORT || 4000;
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '..', 'uploads');
@@ -58,6 +59,132 @@ app.use('/uploads', express.static(uploadsDir));
 
 // Rate limiter
 const createLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, message: 'Too many reports' });
+
+const mapGoogleGeocodeResult = (item) => ({
+  label: item.formatted_address,
+  latitude: item.geometry?.location?.lat,
+  longitude: item.geometry?.location?.lng,
+  source: 'google'
+});
+
+const mapNominatimResult = (item) => ({
+  label: item.display_name,
+  latitude: Number(item.lat),
+  longitude: Number(item.lon),
+  source: 'nominatim'
+});
+
+const buildQueryVariants = (query) => {
+  const base = String(query || '').trim();
+  if (!base) return [];
+
+  const withoutHouseNumber = base.replace(/^\s*\d+[a-zA-Z-]*\s+/, '').trim();
+  const alajoVariant = base.replace(/aladjo/gi, 'alajo');
+  const variants = [
+    base,
+    withoutHouseNumber,
+    alajoVariant,
+    `${base}, Accra, Ghana`,
+    `${withoutHouseNumber || base}, Accra, Ghana`,
+    `${alajoVariant}, Accra, Ghana`,
+    `${base}, Ghana`
+  ];
+
+  return [...new Set(variants.filter(Boolean))];
+};
+
+const fetchGoogleAddressSuggestions = async (query, limit = 5) => {
+  if (!GOOGLE_API_KEY) return [];
+
+  const variants = buildQueryVariants(query);
+
+  for (const variant of variants) {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(variant)}&components=country:GH&key=${GOOGLE_API_KEY}`;
+    const response = await fetch(url);
+    if (!response.ok) continue;
+    const data = await response.json();
+    if (!Array.isArray(data.results)) continue;
+    const mapped = data.results
+      .slice(0, limit)
+      .map(mapGoogleGeocodeResult)
+      .filter(r => Number.isFinite(r.latitude) && Number.isFinite(r.longitude));
+    if (mapped.length) return mapped;
+  }
+
+  return [];
+};
+
+const fetchNominatimSuggestions = async (query, limit = 5) => {
+  const variants = buildQueryVariants(query);
+
+  const urls = variants.flatMap((variant) => [
+    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(variant)}&limit=${limit}&addressdetails=1&countrycodes=gh`,
+    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(variant)}&limit=${limit}&addressdetails=1`
+  ]);
+
+  for (const url of urls) {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'emergency-response-system/1.0'
+      }
+    });
+    if (!response.ok) continue;
+    const data = await response.json();
+    if (!Array.isArray(data)) continue;
+    const mapped = data.map(mapNominatimResult).filter(r => Number.isFinite(r.latitude) && Number.isFinite(r.longitude));
+    if (mapped.length) return mapped;
+  }
+
+  return [];
+};
+
+app.get('/geocode/suggest', async (req, res) => {
+  try {
+    const query = String(req.query.q || '').trim();
+    if (query.length < 3) {
+      return res.json([]);
+    }
+
+    let suggestions = [];
+    if (GOOGLE_API_KEY) {
+      suggestions = await fetchGoogleAddressSuggestions(query, 5);
+    }
+    if (!suggestions.length) {
+      suggestions = await fetchNominatimSuggestions(query, 5);
+    }
+
+    res.json(suggestions);
+  } catch (err) {
+    console.error('Geocode suggest error:', err.message);
+    res.status(500).json({ error: 'Unable to fetch address suggestions' });
+  }
+});
+
+app.get('/geocode/resolve', async (req, res) => {
+  try {
+    const query = String(req.query.address || '').trim();
+    if (query.length < 3) {
+      return res.status(400).json({ error: 'Address is required' });
+    }
+
+    let suggestions = [];
+    if (GOOGLE_API_KEY) {
+      suggestions = await fetchGoogleAddressSuggestions(query, 1);
+    }
+    if (!suggestions.length) {
+      suggestions = await fetchNominatimSuggestions(query, 1);
+    }
+
+    if (!suggestions.length) {
+      return res.status(404).json({ error: 'Address not found' });
+    }
+
+    res.json(suggestions[0]);
+  } catch (err) {
+    console.error('Geocode resolve error:', err.message);
+    res.status(500).json({ error: 'Unable to resolve address' });
+  }
+});
 
 // Routes
 app.post('/report', createLimiter, upload.any(), (req, res) => {

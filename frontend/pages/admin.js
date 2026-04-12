@@ -13,15 +13,8 @@ const Admin = () => {
   
   // Get API base - use environment variable or fallback
   const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
-  const apiConfigured = Boolean(process.env.NEXT_PUBLIC_API_BASE);
 
   useEffect(() => {
-    if (!apiConfigured) {
-      setLoading(false);
-      setReports([]);
-      return;
-    }
-
     const load = async () => {
       try {
         const res = await axios.get(apiBase + "/reports");
@@ -41,11 +34,6 @@ const Admin = () => {
   }, []);
 
   const updateStatus = async (id, status) => {
-    if (!apiConfigured) {
-      alert("API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.");
-      return;
-    }
-
     try {
       await axios.patch(`${apiBase}/report/${id}`, { status });
       setReports(prev => prev.map(r => r._id === id ? { ...r, status } : r));
@@ -100,10 +88,10 @@ const Admin = () => {
     <div style={{ background: "linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%)", minHeight: "100vh", color: "#e2e8f0" }}>
       <div style={{ background: "linear-gradient(135deg, #dc2626 0%, #991b1b 50%, #1e40af 100%)", padding: "40px 20px", textAlign: "center", borderBottom: "3px solid #fbbf24", position: "relative" }}>
         <div style={{ position: "absolute", top: 20, right: 20, display: "flex", gap: 10 }}>
-          <a href="/admin" style={{ padding: "10px 20px", background: "rgba(255,255,255,0.1)", color: "white", textDecoration: "none", borderRadius: 6, fontSize: "0.9rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.2s" }} onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.2)"; }} onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.1)"; }}>
+          <a href="/admin/" style={{ padding: "10px 20px", background: "rgba(255,255,255,0.1)", color: "white", textDecoration: "none", borderRadius: 6, fontSize: "0.9rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.2s" }} onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.2)"; }} onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.1)"; }}>
             🔄 Live
           </a>
-          <a href="/reports" style={{ padding: "10px 20px", background: "rgba(255,255,255,0.15)", color: "white", textDecoration: "none", borderRadius: 6, fontSize: "0.9rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.2s" }} onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.25)"; }} onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.15)"; }}>
+          <a href="/reports/" style={{ padding: "10px 20px", background: "rgba(255,255,255,0.15)", color: "white", textDecoration: "none", borderRadius: 6, fontSize: "0.9rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.2s" }} onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.25)"; }} onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.15)"; }}>
             📋 Archive
           </a>
         </div>
@@ -131,12 +119,6 @@ const Admin = () => {
       </div>
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "30px 20px" }}>
-        {!apiConfigured && (
-          <div style={{ background: "#ffebee", color: "#b71c1c", border: "2px solid #ef5350", borderRadius: 10, padding: 12, marginBottom: 20, fontSize: "0.9rem", fontWeight: 700 }}>
-            API not configured. Set NEXT_PUBLIC_API_BASE in frontend/.env.local and restart the frontend.
-          </div>
-        )}
-
         <div style={{ display: "flex", gap: 15, marginBottom: 20, alignItems: "center" }}>
           <select value={filter} onChange={e => setFilter(e.target.value)} style={{ padding: "10px 15px", borderRadius: 8, border: "2px solid #475569", background: "#0f172a", color: "#e2e8f0", fontWeight: 500, cursor: "pointer" }}>
             <option value="all">All Statuses</option>
@@ -213,7 +195,7 @@ const Admin = () => {
                   <h3 style={{ margin: "0 0 12px 0", color: "#fbbf24", fontSize: "1rem" }}>🗺️ Emergency Location</h3>
                   <div style={{ position: "relative", borderRadius: 8, overflow: "hidden", background: "#1a1f35", height: 350 }}>
                     <iframe
-                      src={`https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3968.${Math.round(Math.random() * 1000)}!2d${selectedReport.longitude}!3d${selectedReport.latitude}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2s${selectedReport.latitude},${selectedReport.longitude}!5e0!3m2!1sen!2sgh!4v${Date.now()}`}
+                      src={`https://www.google.com/maps?q=${encodeURIComponent(`${Number(selectedReport.latitude)},${Number(selectedReport.longitude)}`)}&z=17&output=embed`}
                       width="100%"
                       height="100%"
                       style={{ border: 0 }}
@@ -226,7 +208,7 @@ const Admin = () => {
                     ✓ Click on the map to get directions | Accuracy: ±{Math.round(selectedReport.accuracy || 0)}m
                   </p>
                   <button 
-                    onClick={() => window.open(`https://www.google.com/maps/search/${selectedReport.latitude},${selectedReport.longitude}`, "_blank")}
+                    onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${Number(selectedReport.latitude)},${Number(selectedReport.longitude)}`)}`, "_blank")}
                     style={{ 
                       width: "100%", 
                       marginTop: 12, 
