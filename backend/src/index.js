@@ -7,6 +7,7 @@ const morgan = require('morgan');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
+const mongoose = require('mongoose');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,17 +15,36 @@ const { Server } = require('socket.io');
 const io = new Server(server, { cors: { origin: '*' } });
 
 const PORT = process.env.PORT || 4000;
+const MONGODB_URI = process.env.MONGODB_URI;
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+
+// MongoDB connection
+let useDB = false;
+let Report;
+
+if (MONGODB_URI) {
+  mongoose.connect(MONGODB_URI)
+    .then(() => {
+      console.log('Connected to MongoDB');
+      useDB = true;
+      Report = require('./models/report');
+    })
+    .catch(err => {
+      console.error('MongoDB connection failed, using in-memory store:', err.message);
+    });
+} else {
+  console.log('No MONGODB_URI set, using in-memory store');
+}
+
+// In-memory fallback
+let memoryReports = [];
+let idCounter = 1;
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-
-// In-memory store for demo/testing
-let reports = [];
-let idCounter = 1;
 
 app.use(cors());
 app.use(express.json());
@@ -190,7 +210,7 @@ app.get('/geocode/resolve', async (req, res) => {
 });
 
 // Routes
-app.post('/report', createLimiter, upload.any(), (req, res) => {
+app.post('/report', createLimiter, upload.any(), async (req, res) => {
   try {
     const { type, latitude, longitude, accuracy, description, responderNumber } = req.body;
     if (!type || !latitude || !longitude) {
@@ -217,8 +237,7 @@ app.post('/report', createLimiter, upload.any(), (req, res) => {
       mediaCount = mediaUrls.length;
     }
 
-    const report = {
-      _id: String(idCounter++),
+    const reportData = {
       type,
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude),
@@ -232,8 +251,17 @@ app.post('/report', createLimiter, upload.any(), (req, res) => {
       created_at: new Date(),
       updated_at: new Date()
     };
+
+    let report;
+    if (useDB) {
+      report = await Report.create(reportData);
+      report = report.toObject();
+      report._id = String(report._id);
+    } else {
+      report = { _id: String(idCounter++), ...reportData };
+      memoryReports.push(report);
+    }
     
-    reports.push(report);
     io.emit('new-report', report);
     res.json(report);
   } catch (err) {
@@ -242,17 +270,27 @@ app.post('/report', createLimiter, upload.any(), (req, res) => {
   }
 });
 
-app.get('/reports', (req, res) => {
+app.get('/reports', async (req, res) => {
   try {
-    res.json([...reports].reverse());
+    if (useDB) {
+      const reports = await Report.find().sort({ created_at: -1 }).lean();
+      res.json(reports);
+    } else {
+      res.json([...memoryReports].reverse());
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/report/:id', (req, res) => {
+app.get('/report/:id', async (req, res) => {
   try {
-    const report = reports.find(r => r._id === req.params.id);
+    let report;
+    if (useDB) {
+      report = await Report.findById(req.params.id).lean();
+    } else {
+      report = memoryReports.find(r => r._id === req.params.id);
+    }
     if (!report) return res.status(404).json({ error: 'Report not found' });
     res.json(report);
   } catch (err) {
@@ -260,7 +298,7 @@ app.get('/report/:id', (req, res) => {
   }
 });
 
-app.patch('/report/:id', (req, res) => {
+app.patch('/report/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -268,11 +306,18 @@ app.patch('/report/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
     
-    const report = reports.find(r => r._id === id);
+    let report;
+    if (useDB) {
+      report = await Report.findByIdAndUpdate(id, { status, updated_at: new Date() }, { new: true }).lean();
+    } else {
+      report = memoryReports.find(r => r._id === id);
+      if (report) {
+        report.status = status;
+        report.updated_at = new Date();
+      }
+    }
     if (!report) return res.status(404).json({ error: 'Not found' });
     
-    report.status = status;
-    report.updated_at = new Date();
     io.emit('update-report', report);
     res.json(report);
   } catch (err) {
