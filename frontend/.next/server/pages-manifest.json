@@ -1,12 +1,12 @@
 {
-  "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
-  "/admin": "pages/admin.html",
   "/api/hello": "pages/api/hello.js",
+  "/_app": "pages/_app.js",
+  "/admin": "pages/admin.html",
   "/index-simple": "pages/index-simple.html",
   "/": "pages/index.html",
-  "/reports": "pages/reports.html",
   "/user": "pages/user.html",
+  "/reports": "pages/reports.html",
   "/_document": "pages/_document.js",
   "/404": "pages/404.html"
 }

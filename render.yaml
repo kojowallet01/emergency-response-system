@@ -11,3 +11,7 @@ services:
         value: production
       - key: PORT
         value: 4000
+      - key: MONGODB_URI
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false

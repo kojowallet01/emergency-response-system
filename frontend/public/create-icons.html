@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Create Emergency App Icons</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background: #f0f0f0;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    canvas {
+      border: 2px solid #ddd;
+      margin: 20px 0;
+      border-radius: 10px;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 10px;
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    .instructions {
+      text-align: left;
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚨 Emergency App Icons</h1>
+    <p>Click the buttons below to download your app icons</p>
+    
+    <h3>Icon 192x192</h3>
+    <canvas id="canvas192" width="192" height="192"></canvas>
+    <br>
+    <button onclick="downloadIcon(192)">Download icon-192.png</button>
+    
+    <h3>Icon 512x512</h3>
+    <canvas id="canvas512" width="512" height="512"></canvas>
+    <br>
+    <button onclick="downloadIcon(512)">Download icon-512.png</button>
+    
+    <div class="instructions">
+      <h3>📋 Instructions:</h3>
+      <ol>
+        <li>Click both download buttons above</li>
+        <li>Save the files as <code>icon-192.png</code> and <code>icon-512.png</code></li>
+        <li>Move them to the <code>/frontend/public/</code> folder</li>
+        <li>Restart your Next.js server</li>
+        <li>Your PWA is ready! 🎉</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    function createIcon(size) {
+      const canvas = document.getElementById(`canvas${size}`);
+      const ctx = canvas.getContext('2d');
+      
+      // Gradient background
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, '#667eea');
+      gradient.addColorStop(1, '#764ba2');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+      
+      // Emergency symbol (circle with exclamation)
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.arc(size/2, size/2, size/3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Red alert circle
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(size/2, size/2, size/3.5, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Exclamation mark
+      ctx.fillStyle = 'white';
+      ctx.font = `bold ${size/2.5}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('!', size/2, size/2.2);
+    }
+    
+    function downloadIcon(size) {
+      const canvas = document.getElementById(`canvas${size}`);
+      const link = document.createElement('a');
+      link.download = `icon-${size}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+    
+    // Create icons on load
+    createIcon(192);
+    createIcon(512);
+  </script>
+</body>
+</html>

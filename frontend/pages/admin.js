@@ -1,302 +1,957 @@
-﻿import { useEffect, useState } from "react";
-import axios from "axios";
-import Head from "next/head";
+import { useEffect, useState, useRef } from "react";
+import { supabase } from "../lib/supabase";
+import { useRouter } from "next/router";
+import { requestNotificationPermission, notifyNewEmergency } from "../lib/notifications";
+import { getAverageResponseTime, getReportsToday, getReportsThisWeek, getTrendData, exportToCSV } from "../lib/analytics";
+import dynamic from 'next/dynamic';
+
+// Import map dynamically to avoid SSR issues
+const EmergencyMap = dynamic(() => import('../components/EmergencyMap'), {
+  ssr: false,
+  loading: () => (
+    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9', borderRadius: 12 }}>
+      <p style={{ color: '#64748b' }}>Loading map...</p>
+    </div>
+  )
+});
 
 const Admin = () => {
   const [reports, setReports] = useState([]);
   const [filter, setFilter] = useState("all");
   const [selectedReport, setSelectedReport] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [streetName, setStreetName] = useState(null);
-  const [loadingLocation, setLoadingLocation] = useState(false);
-  const [showMap, setShowMap] = useState(false);
-  
-  // Get API base - use environment variable or fallback
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+  const [user, setUser] = useState(null);
+  const [userRole, setUserRole] = useState(null);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const notificationsEnabledRef = useRef(false);
+  const router = useRouter();
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await axios.get(apiBase + "/reports");
-        const data = res.data || [];
-        // Ensure data is an array
-        setReports(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error("Error fetching reports:", e);
-        setReports([]); // Set to empty array on error
-      } finally {
-        setLoading(false);
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        router.push('/login');
+        return null;
+      }
+      
+      setUser(session.user);
+      
+      // Request notification permission
+      const hasPermission = await requestNotificationPermission();
+      setNotificationsEnabled(hasPermission);
+      notificationsEnabledRef.current = hasPermission;
+      
+      // Fetch user role from admin_profiles
+      const { data: profile, error } = await supabase
+        .from('admin_profiles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching user role:', error);
+        alert('Access denied: No admin profile found');
+        await supabase.auth.signOut();
+        router.push('/login');
+        return null;
+      }
+      
+      setUserRole(profile.role);
+      loadReports(profile.role);
+
+      // Remove any existing channel first
+      supabase.removeChannel(supabase.channel('reports-channel'));
+
+      const subscription = supabase
+        .channel('reports-channel')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newReport = payload.new;
+            
+            // Check if report matches user's role (or if super_admin)
+            if (profile.role === 'super_admin' || newReport.type === profile.role) {
+              setReports(prev => [newReport, ...prev]);
+              
+              // Show notification for new emergency (check ref for current state)
+              if (notificationsEnabledRef.current) {
+                notifyNewEmergency(newReport);
+              }
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            setReports(prev => prev.map(r => r.id === payload.new.id ? payload.new : r));
+          }
+        })
+        .subscribe();
+
+      return subscription;
+    };
+
+    let subscription;
+    initAuth().then(sub => {
+      subscription = sub;
+    });
+
+    return () => {
+      if (subscription) {
+        subscription.unsubscribe();
       }
     };
-    load();
-    const interval = setInterval(load, 3000);
-    return () => clearInterval(interval);
   }, []);
+
+  const loadReports = async (role) => {
+    try {
+      let query = supabase
+        .from('reports')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      // Filter by role unless super_admin
+      if (role && role !== 'super_admin') {
+        query = query.eq('type', role);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      setReports(data || []);
+    } catch (e) {
+      console.error("Error fetching reports:", e);
+      setReports([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
+
+  const toggleNotifications = async () => {
+    if (notificationsEnabled) {
+      // Turn off notifications
+      setNotificationsEnabled(false);
+      notificationsEnabledRef.current = false;
+    } else {
+      // Request permission and turn on
+      const hasPermission = await requestNotificationPermission();
+      setNotificationsEnabled(hasPermission);
+      notificationsEnabledRef.current = hasPermission;
+      
+      if (!hasPermission) {
+        alert('Please allow notifications in your browser settings to enable alerts.');
+      }
+    }
+  };
 
   const updateStatus = async (id, status) => {
     try {
-      await axios.patch(`${apiBase}/report/${id}`, { status });
-      setReports(prev => prev.map(r => r._id === id ? { ...r, status } : r));
+      const { error } = await supabase
+        .from('reports')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (error) throw error;
+      setReports(prev => prev.map(r => r.id === id ? { ...r, status } : r));
     } catch (e) {
       console.error(e);
+      alert('Failed to update status');
     }
   };
 
-  const getStreetName = async (lat, lng) => {
-    setLoadingLocation(true);
-    setStreetName(null);
-    try {
-      // Use Google Maps Geocoding API (requires API key)
-      const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
-      if (!GOOGLE_API_KEY) {
-        // Fallback to OpenStreetMap if no Google API key
-        const response = await axios.get(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
-        );
-        const address = response.data.address;
-        const street = address.road || address.street || address.neighbourhood || address.village || address.town || address.city || "Unknown Location";
-        setStreetName(street);
-      } else {
-        // Use Google Maps Geocoding API
-        const response = await axios.get(
-          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_API_KEY}`
-        );
-        if (response.data.results && response.data.results.length > 0) {
-          const address = response.data.results[0];
-          // Get formatted address or street
-          const street = address.formatted_address || address.address_components[0]?.long_name || "Unknown Location";
-          setStreetName(street);
-        } else {
-          setStreetName("Location not found");
-        }
+  // Filter reports by status and date range
+  const filtered = reports.filter(r => {
+    // Status filter
+    const statusMatch = filter === "all" || r.status === filter;
+    
+    // Date range filter
+    let dateMatch = true;
+    if (dateRange.start || dateRange.end) {
+      const reportDate = new Date(r.created_at);
+      reportDate.setHours(0, 0, 0, 0);
+      
+      if (dateRange.start) {
+        const startDate = new Date(dateRange.start);
+        startDate.setHours(0, 0, 0, 0);
+        dateMatch = dateMatch && reportDate >= startDate;
       }
-    } catch (e) {
-      console.error("Geocoding error:", e);
-      setStreetName("Unable to fetch location name");
-    } finally {
-      setLoadingLocation(false);
+      
+      if (dateRange.end) {
+        const endDate = new Date(dateRange.end);
+        endDate.setHours(23, 59, 59, 999);
+        dateMatch = dateMatch && reportDate <= endDate;
+      }
     }
-  };
-
-  const filtered = Array.isArray(reports) ? reports.filter(r => filter === "all" || r.status === filter) : [];
-  const pending = Array.isArray(reports) ? reports.filter(r => r.status === "pending").length : 0;
-  const responding = Array.isArray(reports) ? reports.filter(r => r.status === "responding").length : 0;
-  const resolved = Array.isArray(reports) ? reports.filter(r => r.status === "resolved").length : 0;
-  const responseRate = Array.isArray(reports) && reports.length > 0 ? Math.round(((responding + resolved) / reports.length) * 100) : 0;
+    
+    return statusMatch && dateMatch;
+  });
+  
+  const pending = reports.filter(r => r.status === "pending").length;
+  const responding = reports.filter(r => r.status === "responding").length;
+  const resolved = reports.filter(r => r.status === "resolved").length;
 
   return (
-    <div style={{ background: "linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%)", minHeight: "100vh", color: "#e2e8f0" }}>
-      <div style={{ background: "linear-gradient(135deg, #dc2626 0%, #991b1b 50%, #1e40af 100%)", padding: "40px 20px", textAlign: "center", borderBottom: "3px solid #fbbf24", position: "relative" }}>
-        <div style={{ position: "absolute", top: 20, right: 20, display: "flex", gap: 10 }}>
-          <a href="/admin/" style={{ padding: "10px 20px", background: "rgba(255,255,255,0.1)", color: "white", textDecoration: "none", borderRadius: 6, fontSize: "0.9rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.2s" }} onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.2)"; }} onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.1)"; }}>
-            🔄 Live
-          </a>
-          <a href="/reports/" style={{ padding: "10px 20px", background: "rgba(255,255,255,0.15)", color: "white", textDecoration: "none", borderRadius: 6, fontSize: "0.9rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer", transition: "all 0.2s" }} onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.25)"; }} onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.15)"; }}>
-            📋 Archive
-          </a>
-        </div>
-        <h1 style={{ margin: "0 0 10px 0", fontSize: "2.8rem", fontWeight: 900, color: "white" }}>🚨 EMERGENCY CONTROL CENTER 🚨</h1>
-        <p style={{ margin: 0, fontSize: "1.1rem", opacity: 0.9 }}>Real-time Crisis Management</p>
-        
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 15, marginTop: 30, maxWidth: 1200, margin: "30px auto 0" }}>
-          <div style={{ background: "rgba(220,38,38,0.2)", padding: 20, borderRadius: 10, border: "2px solid #fca5a5" }}>
-            <div style={{ fontSize: "0.9rem", color: "#fecaca", fontWeight: 700 }}>⏳ PENDING</div>
-            <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#fca5a5" }}>{pending}</div>
+    <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
+      {/* Clean Header */}
+      <div style={{ background: "white", borderBottom: "1px solid #e2e8f0", padding: "24px 32px" }}>
+        <div style={{ maxWidth: 1400, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 600, color: "#0f172a" }}>
+              Emergency Dashboard
+              {userRole && userRole !== 'super_admin' && (
+                <span style={{ marginLeft: 12, fontSize: "0.875rem", fontWeight: 500, color: "#64748b", textTransform: "capitalize" }}>
+                  ({userRole} Admin)
+                </span>
+              )}
+              {userRole === 'super_admin' && (
+                <span style={{ marginLeft: 12, fontSize: "0.875rem", fontWeight: 500, color: "#10b981" }}>
+                  (Super Admin)
+                </span>
+              )}
+            </h1>
+            <p style={{ margin: "4px 0 0 0", fontSize: "0.875rem", color: "#64748b" }}>Real-time monitoring</p>
           </div>
-          <div style={{ background: "rgba(59,130,246,0.2)", padding: 20, borderRadius: 10, border: "2px solid #60a5fa" }}>
-            <div style={{ fontSize: "0.9rem", color: "#93c5fd", fontWeight: 700 }}>🚗 RESPONDING</div>
-            <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#60a5fa" }}>{responding}</div>
-          </div>
-          <div style={{ background: "rgba(34,197,94,0.2)", padding: 20, borderRadius: 10, border: "2px solid #4ade80" }}>
-            <div style={{ fontSize: "0.9rem", color: "#86efac", fontWeight: 700 }}>✓ RESOLVED</div>
-            <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#4ade80" }}>{resolved}</div>
-          </div>
-          <div style={{ background: "rgba(251,191,36,0.2)", padding: 20, borderRadius: 10, border: "2px solid #fbbf24" }}>
-            <div style={{ fontSize: "0.9rem", color: "#fcd34d", fontWeight: 700 }}>📡 RESPONSE RATE</div>
-            <div style={{ fontSize: "2.5rem", fontWeight: 900, color: "#fbbf24" }}>{responseRate}%</div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            {/* Notification Toggle Button */}
+            <button
+              onClick={toggleNotifications}
+              style={{ 
+                padding: "8px 12px", 
+                background: notificationsEnabled ? "#f0fdf4" : "#fef2f2", 
+                border: `1px solid ${notificationsEnabled ? "#10b981" : "#ef4444"}`,
+                borderRadius: 6, 
+                fontSize: "0.75rem", 
+                fontWeight: 500,
+                color: notificationsEnabled ? "#10b981" : "#ef4444",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.transform = "scale(1.05)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.transform = "scale(1)";
+              }}
+            >
+              <span>{notificationsEnabled ? "🔔" : "🔕"}</span>
+              {notificationsEnabled ? "Notifications ON" : "Notifications OFF"}
+            </button>
+            {user && (
+              <span style={{ fontSize: "0.875rem", color: "#64748b", marginRight: 8 }}>
+                {user.email}
+              </span>
+            )}
+            <a href="/" style={{ padding: "8px 16px", background: "#f1f5f9", color: "#475569", textDecoration: "none", borderRadius: 6, fontSize: "0.875rem", fontWeight: 500 }}>
+              User View
+            </a>
+            <a href="/reports" style={{ padding: "8px 16px", background: "#f1f5f9", color: "#475569", textDecoration: "none", borderRadius: 6, fontSize: "0.875rem", fontWeight: 500 }}>
+              Reports
+            </a>
+            {userRole === 'super_admin' && (
+              <a href="/manage-admins" style={{ padding: "8px 16px", background: "#eff6ff", color: "#2563eb", textDecoration: "none", borderRadius: 6, fontSize: "0.875rem", fontWeight: 500, border: "1px solid #2563eb" }}>
+                👥 Manage Admins
+              </a>
+            )}
+            <button onClick={handleLogout} style={{ padding: "8px 16px", background: "#ef4444", color: "white", border: "none", borderRadius: 6, fontSize: "0.875rem", fontWeight: 500, cursor: "pointer" }}>
+              Logout
+            </button>
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "30px 20px" }}>
-        <div style={{ display: "flex", gap: 15, marginBottom: 20, alignItems: "center" }}>
-          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ padding: "10px 15px", borderRadius: 8, border: "2px solid #475569", background: "#0f172a", color: "#e2e8f0", fontWeight: 500, cursor: "pointer" }}>
-            <option value="all">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="responding">Responding</option>
-            <option value="resolved">Resolved</option>
-          </select>
-          <span style={{ color: "#94a3b8" }}>Showing {filtered.length} alert{filtered.length !== 1 ? "s" : ""}</span>
+      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "32px" }}>
+        
+        {/* Clean Stats - 4 Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 24, marginBottom: 40 }}>
+          <div style={{ background: "white", padding: 24, borderRadius: 12, border: "1px solid #e2e8f0", transition: "all 0.2s", cursor: "pointer" }} onMouseOver={(e) => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 24px rgba(0,0,0,0.1)"; }} onMouseOut={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}>
+            <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b", fontWeight: 500 }}>Total Reports</p>
+            <p style={{ margin: "8px 0 0 0", fontSize: "2rem", fontWeight: 700, color: "#0f172a" }}>{reports.length}</p>
+          </div>
+          <div style={{ background: "white", padding: 24, borderRadius: 12, border: "1px solid #e2e8f0", transition: "all 0.2s", cursor: "pointer" }} onMouseOver={(e) => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 24px rgba(239,68,68,0.15)"; }} onMouseOut={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}>
+            <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b", fontWeight: 500 }}>Pending</p>
+            <p style={{ margin: "8px 0 0 0", fontSize: "2rem", fontWeight: 700, color: "#ef4444" }}>{pending}</p>
+          </div>
+          <div style={{ background: "white", padding: 24, borderRadius: 12, border: "1px solid #e2e8f0", transition: "all 0.2s", cursor: "pointer" }} onMouseOver={(e) => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 24px rgba(245,158,11,0.15)"; }} onMouseOut={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}>
+            <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b", fontWeight: 500 }}>Responding</p>
+            <p style={{ margin: "8px 0 0 0", fontSize: "2rem", fontWeight: 700, color: "#f59e0b" }}>{responding}</p>
+          </div>
+          <div style={{ background: "white", padding: 24, borderRadius: 12, border: "1px solid #e2e8f0", transition: "all 0.2s", cursor: "pointer" }} onMouseOver={(e) => { e.currentTarget.style.transform = "translateY(-4px)"; e.currentTarget.style.boxShadow = "0 12px 24px rgba(16,185,129,0.15)"; }} onMouseOut={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}>
+            <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b", fontWeight: 500 }}>Resolved</p>
+            <p style={{ margin: "8px 0 0 0", fontSize: "2rem", fontWeight: 700, color: "#10b981" }}>{resolved}</p>
+          </div>
         </div>
 
+        {/* Charts Section */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 40 }}>
+          
+          {/* Status Distribution Pie Chart - For ALL admins */}
+          <div style={{ background: "white", padding: 32, borderRadius: 12, border: "1px solid #e2e8f0" }}>
+            <h3 style={{ margin: "0 0 24px 0", fontSize: "1rem", fontWeight: 600, color: "#0f172a" }}>
+              {userRole === 'super_admin' ? 'Status Distribution (All Types)' : `${userRole?.charAt(0).toUpperCase() + userRole?.slice(1)} Status Distribution`}
+            </h3>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 40 }}>
+              {/* Simple Pie Chart using CSS */}
+              <div style={{ position: "relative", width: 180, height: 180 }}>
+                <svg viewBox="0 0 100 100" style={{ transform: "rotate(-90deg)" }}>
+                  {/* Pending slice */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="#ef4444"
+                    strokeWidth="20"
+                    strokeDasharray={`${(pending / reports.length * 100) || 0} ${100 - (pending / reports.length * 100) || 100}`}
+                  />
+                  {/* Responding slice */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="20"
+                    strokeDasharray={`${(responding / reports.length * 100) || 0} ${100 - (responding / reports.length * 100) || 100}`}
+                    strokeDashoffset={`-${(pending / reports.length * 100) || 0}`}
+                  />
+                  {/* Resolved slice */}
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="20"
+                    strokeDasharray={`${(resolved / reports.length * 100) || 0} ${100 - (resolved / reports.length * 100) || 100}`}
+                    strokeDashoffset={`-${((pending + responding) / reports.length * 100) || 0}`}
+                  />
+                </svg>
+                <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", textAlign: "center" }}>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0f172a" }}>{reports.length}</div>
+                  <div style={{ fontSize: "0.75rem", color: "#64748b" }}>Total</div>
+                </div>
+              </div>
+              {/* Legend */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: 2, background: "#ef4444" }}></div>
+                  <span style={{ fontSize: "0.875rem", color: "#64748b" }}>Pending ({pending})</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: 2, background: "#f59e0b" }}></div>
+                  <span style={{ fontSize: "0.875rem", color: "#64748b" }}>Responding ({responding})</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 12, height: 12, borderRadius: 2, background: "#10b981" }}></div>
+                  <span style={{ fontSize: "0.875rem", color: "#64748b" }}>Resolved ({resolved})</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Emergency Types Chart - Super Admin sees all, others see only their type */}
+          <div style={{ background: "white", padding: 32, borderRadius: 12, border: "1px solid #e2e8f0" }}>
+            <h3 style={{ margin: "0 0 24px 0", fontSize: "1rem", fontWeight: 600, color: "#0f172a" }}>
+              {userRole === 'super_admin' ? 'All Emergency Types' : `${userRole?.charAt(0).toUpperCase() + userRole?.slice(1)} Emergency Breakdown`}
+            </h3>
+            
+            {userRole === 'super_admin' ? (
+              // Super Admin: Show all emergency types
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* Fire */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: "0.875rem", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>🔥</span> Fire
+                    </span>
+                    <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>
+                      {reports.filter(r => r.type === 'fire').length}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ 
+                      width: `${reports.length > 0 ? (reports.filter(r => r.type === 'fire').length / reports.length * 100) : 0}%`, 
+                      height: "100%", 
+                      background: "linear-gradient(90deg, #ff5252 0%, #ff1744 100%)",
+                      transition: "width 0.3s"
+                    }}></div>
+                  </div>
+                </div>
+                {/* Medical */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: "0.875rem", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>🏥</span> Medical
+                    </span>
+                    <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>
+                      {reports.filter(r => r.type === 'medical').length}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ 
+                      width: `${reports.length > 0 ? (reports.filter(r => r.type === 'medical').length / reports.length * 100) : 0}%`, 
+                      height: "100%", 
+                      background: "linear-gradient(90deg, #2196f3 0%, #1565c0 100%)",
+                      transition: "width 0.3s"
+                    }}></div>
+                  </div>
+                </div>
+                {/* Crime */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: "0.875rem", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>🚔</span> Crime
+                    </span>
+                    <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>
+                      {reports.filter(r => r.type === 'crime').length}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ 
+                      width: `${reports.length > 0 ? (reports.filter(r => r.type === 'crime').length / reports.length * 100) : 0}%`, 
+                      height: "100%", 
+                      background: "linear-gradient(90deg, #ff9800 0%, #e65100 100%)",
+                      transition: "width 0.3s"
+                    }}></div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // Role-specific Admin: Show status breakdown for their type only
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* Pending */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: "0.875rem", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>⏳</span> Pending
+                    </span>
+                    <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>
+                      {pending}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ 
+                      width: `${reports.length > 0 ? (pending / reports.length * 100) : 0}%`, 
+                      height: "100%", 
+                      background: "linear-gradient(90deg, #ef4444 0%, #dc2626 100%)",
+                      transition: "width 0.3s"
+                    }}></div>
+                  </div>
+                </div>
+                {/* Responding */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: "0.875rem", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>🚨</span> Responding
+                    </span>
+                    <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>
+                      {responding}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ 
+                      width: `${reports.length > 0 ? (responding / reports.length * 100) : 0}%`, 
+                      height: "100%", 
+                      background: "linear-gradient(90deg, #f59e0b 0%, #ea580c 100%)",
+                      transition: "width 0.3s"
+                    }}></div>
+                  </div>
+                </div>
+                {/* Resolved */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontSize: "0.875rem", color: "#64748b", display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>✅</span> Resolved
+                    </span>
+                    <span style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>
+                      {resolved}
+                    </span>
+                  </div>
+                  <div style={{ width: "100%", height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ 
+                      width: `${reports.length > 0 ? (resolved / reports.length * 100) : 0}%`, 
+                      height: "100%", 
+                      background: "linear-gradient(90deg, #10b981 0%, #16a34a 100%)",
+                      transition: "width 0.3s"
+                    }}></div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Enhanced Filter Bar with Analytics Toggle and Export */}
+        <div style={{ background: "white", padding: "16px 24px", borderRadius: 12, border: "1px solid #e2e8f0", marginBottom: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["all", "pending", "responding", "resolved"].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: filter === f ? "#0f172a" : "transparent",
+                    color: filter === f ? "white" : "#64748b",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    fontSize: "0.875rem",
+                    textTransform: "capitalize"
+                  }}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                onClick={() => setShowAnalytics(!showAnalytics)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  border: "1px solid #e2e8f0",
+                  background: showAnalytics ? "#eff6ff" : "white",
+                  color: showAnalytics ? "#2196f3" : "#64748b",
+                  cursor: "pointer",
+                  fontWeight: 500,
+                  fontSize: "0.875rem"
+                }}
+              >
+                📊 {showAnalytics ? 'Hide' : 'Show'} Analytics
+              </button>
+              <button
+                onClick={() => exportToCSV(filtered)}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  border: "1px solid #e2e8f0",
+                  background: "white",
+                  color: "#64748b",
+                  cursor: "pointer",
+                  fontWeight: 500,
+                  fontSize: "0.875rem"
+                }}
+              >
+                📥 Export CSV
+              </button>
+              <span style={{ fontSize: "0.875rem", color: "#64748b" }}>{filtered.length} reports</span>
+            </div>
+          </div>
+          
+          {/* Date Range Filter */}
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <span style={{ fontSize: "0.875rem", color: "#64748b", fontWeight: 500 }}>Date Range:</span>
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "1px solid #e2e8f0",
+                fontSize: "0.875rem",
+                color: "#475569"
+              }}
+            />
+            <span style={{ color: "#64748b" }}>to</span>
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "1px solid #e2e8f0",
+                fontSize: "0.875rem",
+                color: "#475569"
+              }}
+            />
+            {(dateRange.start || dateRange.end) && (
+              <button
+                onClick={() => setDateRange({ start: '', end: '' })}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: "#f1f5f9",
+                  color: "#64748b",
+                  cursor: "pointer",
+                  fontSize: "0.875rem"
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Analytics Section */}
+        {showAnalytics && (
+          <div style={{ background: "white", padding: 24, borderRadius: 12, border: "1px solid #e2e8f0", marginBottom: 24 }}>
+            <h3 style={{ margin: "0 0 20px 0", fontSize: "1rem", fontWeight: 600, color: "#0f172a" }}>
+              📊 Performance Analytics
+            </h3>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+              {/* Today */}
+              <div style={{ padding: 16, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}>Today</div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0f172a" }}>{getReportsToday(reports)}</div>
+              </div>
+              
+              {/* This Week */}
+              <div style={{ padding: 16, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}>This Week</div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0f172a" }}>{getReportsThisWeek(reports)}</div>
+              </div>
+              
+              {/* Avg Response Time */}
+              <div style={{ padding: 16, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}>Avg Response</div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0f172a" }}>{getAverageResponseTime(reports)}</div>
+              </div>
+              
+              {/* Resolution Rate */}
+              <div style={{ padding: 16, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: 4 }}>Resolution Rate</div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#0f172a" }}>
+                  {reports.length > 0 ? Math.round((resolved / reports.length) * 100) : 0}%
+                </div>
+              </div>
+            </div>
+
+            {/* 7-Day Trend */}
+            <div>
+              <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#0f172a", marginBottom: 12 }}>
+                7-Day Trend
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120 }}>
+                {getTrendData(reports, 7).map((day, idx) => {
+                  const maxCount = Math.max(...getTrendData(reports, 7).map(d => d.count), 1);
+                  const height = (day.count / maxCount) * 100;
+                  
+                  return (
+                    <div key={idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                      <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "#0f172a" }}>{day.count}</div>
+                      <div
+                        style={{
+                          width: "100%",
+                          height: `${height}%`,
+                          background: "linear-gradient(180deg, #2196f3 0%, #1565c0 100%)",
+                          borderRadius: "4px 4px 0 0",
+                          minHeight: day.count > 0 ? 20 : 4,
+                          transition: "height 0.3s"
+                        }}
+                      ></div>
+                      <div style={{ fontSize: "0.7rem", color: "#64748b", textAlign: "center" }}>{day.date}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reports List - Clean Cards */}
         {loading ? (
-          <div style={{ textAlign: "center", padding: "60px 20px" }}>
-            <p style={{ color: "#94a3b8" }}>Loading alerts...</p>
+          <div style={{ textAlign: "center", padding: 60, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+            <p style={{ margin: 0, color: "#64748b" }}>Loading...</p>
           </div>
         ) : filtered.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
-            <p>No alerts in this category</p>
+          <div style={{ textAlign: "center", padding: 60, background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+            <p style={{ margin: 0, color: "#64748b" }}>No reports found</p>
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))", gap: 20 }}>
+          <div style={{ display: "grid", gap: 16 }}>
             {filtered.map(r => (
-              <div key={r._id} style={{ background: "#1e293b", borderRadius: 12, border: "2px solid #475569", padding: 20 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 15, alignItems: "center" }}>
-                  <div style={{ fontWeight: 700, color: "#e2e8f0" }}>{r.type.toUpperCase()}</div>
-                  <span style={{ background: r.status === "pending" ? "#ff6b6b" : r.status === "responding" ? "#4dabf7" : "#51cf66", color: "white", padding: "5px 12px", borderRadius: 20, fontSize: "0.85rem", fontWeight: 600 }}>{r.status}</span>
+              <div 
+                key={r.id} 
+                style={{ 
+                  background: "white", 
+                  padding: 24, 
+                  borderRadius: 12, 
+                  border: "1px solid #e2e8f0",
+                  display: "grid",
+                  gridTemplateColumns: "auto 1fr auto auto",
+                  gap: 24,
+                  alignItems: "center",
+                  transition: "all 0.2s",
+                  cursor: "pointer"
+                }}
+                onMouseOver={(e) => { 
+                  e.currentTarget.style.transform = "translateY(-2px)"; 
+                  e.currentTarget.style.boxShadow = "0 8px 16px rgba(0,0,0,0.08)"; 
+                }} 
+                onMouseOut={(e) => { 
+                  e.currentTarget.style.transform = "translateY(0)"; 
+                  e.currentTarget.style.boxShadow = "none"; 
+                }}
+              >
+                {/* Type Icon */}
+                <div style={{ 
+                  width: 48, 
+                  height: 48, 
+                  borderRadius: 8, 
+                  background: r.type === "fire" ? "#fef2f2" : r.type === "medical" ? "#eff6ff" : "#fff7ed",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "1.5rem"
+                }}>
+                  {r.type === "fire" ? "🔥" : r.type === "medical" ? "🏥" : "🚔"}
                 </div>
-                <p style={{ color: "#cbd5e1", margin: "0 0 12px 0", lineHeight: 1.5 }}>{r.description}</p>
-                <div style={{ background: "#0f172a", padding: 10, borderRadius: 8, marginBottom: 12, fontSize: "0.85rem", color: "#94a3b8" }}>📍 {r.latitude?.toFixed(4)}, {r.longitude?.toFixed(4)}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  {r.status !== "resolved" && <button onClick={() => updateStatus(r._id, r.status === "pending" ? "responding" : "resolved")} style={{ padding: "8px", borderRadius: 6, border: "none", background: "#4dabf7", color: "white", cursor: "pointer", fontWeight: 600 }}>Update Status</button>}
-                  <button onClick={() => setSelectedReport(r)} style={{ padding: "8px", borderRadius: 6, border: "1px solid #3b82f6", background: "transparent", color: "#3b82f6", cursor: "pointer", fontWeight: 600 }}>Details</button>
+
+                {/* Info */}
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 600, color: "#0f172a", textTransform: "capitalize" }}>
+                    {r.type} Emergency
+                  </h3>
+                  <p style={{ margin: "4px 0 0 0", fontSize: "0.875rem", color: "#64748b" }}>
+                    {r.latitude?.toFixed(4)}°, {r.longitude?.toFixed(4)}° • {new Date(r.created_at).toLocaleString()}
+                  </p>
+                  {/* Media indicators */}
+                  {(r.voice_url || (r.media_urls && r.media_urls.length > 0)) && (
+                    <div style={{ marginTop: 6, display: "flex", gap: 8, fontSize: "0.75rem", color: "#64748b" }}>
+                      {r.voice_url && <span style={{ background: "#f3e5f5", padding: "2px 8px", borderRadius: 4, color: "#9c27b0" }}>🎤 Voice</span>}
+                      {r.media_urls && r.media_urls.length > 0 && <span style={{ background: "#e1f5fe", padding: "2px 8px", borderRadius: 4, color: "#0288d1" }}>📸 {r.media_urls.length} photo{r.media_urls.length > 1 ? 's' : ''}</span>}
+                    </div>
+                  )}
+                </div>
+
+                {/* Status Badge */}
+                <span style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  background: r.status === "pending" ? "#fef2f2" : r.status === "responding" ? "#fff7ed" : "#f0fdf4",
+                  color: r.status === "pending" ? "#dc2626" : r.status === "responding" ? "#ea580c" : "#16a34a"
+                }}>
+                  {r.status}
+                </span>
+
+                {/* Actions */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  {r.status !== "resolved" && (
+                    <button
+                      onClick={() => updateStatus(r.id, r.status === "pending" ? "responding" : "resolved")}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: 6,
+                        border: "none",
+                        background: "#0f172a",
+                        color: "white",
+                        cursor: "pointer",
+                        fontWeight: 500,
+                        fontSize: "0.875rem"
+                      }}
+                    >
+                      {r.status === "pending" ? "Respond" : "Resolve"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSelectedReport(r)}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 6,
+                      border: "1px solid #e2e8f0",
+                      background: "white",
+                      color: "#475569",
+                      cursor: "pointer",
+                      fontWeight: 500,
+                      fontSize: "0.875rem"
+                    }}
+                  >
+                    Details
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
 
+        {/* Emergency Map - Compact at Bottom */}
+        <div style={{ background: "white", padding: 20, borderRadius: 12, border: "1px solid #e2e8f0", marginTop: 24, height: 350 }}>
+          <h3 style={{ margin: "0 0 12px 0", fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>
+            📍 Emergency Locations Map
+          </h3>
+          <div style={{ height: 'calc(100% - 32px)' }}>
+            <EmergencyMap 
+              reports={reports} 
+              onMarkerClick={(report) => setSelectedReport(report)}
+            />
+          </div>
+        </div>
+
+        {/* Modal - Clean Design */}
         {selectedReport && (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }} onClick={() => { setSelectedReport(null); setShowMap(false); }}>
-            <div style={{ background: "#1e293b", borderRadius: 12, maxWidth: 700, padding: 30, border: "2px solid #3b82f6", position: "relative", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
-              <button onClick={() => { setSelectedReport(null); setShowMap(false); }} style={{ position: "absolute", top: 15, right: 15, background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "#e2e8f0" }}>✕</button>
-              <h2 style={{ margin: "0 0 15px 0", color: "#e2e8f0", fontSize: "1.5rem" }}>{selectedReport.type.toUpperCase()}</h2>
-              <p style={{ color: "#cbd5e1", marginBottom: 15 }}>{selectedReport.description}</p>
-              
-              {/* CLICKABLE LOCATION WITH STREET NAME AND MAP */}
-              <div style={{ background: "#0f172a", padding: 15, borderRadius: 8, marginBottom: 20 }}>
+          <div 
+            style={{ 
+              position: "fixed", 
+              top: 0, 
+              left: 0, 
+              right: 0, 
+              bottom: 0, 
+              background: "rgba(0,0,0,0.5)", 
+              display: "flex", 
+              alignItems: "center", 
+              justifyContent: "center", 
+              zIndex: 999,
+              padding: 20
+            }} 
+            onClick={() => setSelectedReport(null)}
+          >
+            <div 
+              style={{ 
+                background: "white", 
+                borderRadius: 12, 
+                maxWidth: 600, 
+                width: "100%", 
+                maxHeight: "90vh", 
+                overflowY: "auto",
+                padding: 32
+              }} 
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 24 }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 600, color: "#0f172a", textTransform: "capitalize" }}>
+                    {selectedReport.type} Emergency
+                  </h2>
+                  <p style={{ margin: "4px 0 0 0", fontSize: "0.875rem", color: "#64748b" }}>
+                    {new Date(selectedReport.created_at).toLocaleString()}
+                  </p>
+                </div>
                 <button 
-                  onClick={() => { getStreetName(selectedReport.latitude, selectedReport.longitude); setShowMap(true); }}
+                  onClick={() => setSelectedReport(null)} 
                   style={{ 
-                    background: "#1e40af", 
-                    color: "white", 
+                    background: "none", 
                     border: "none", 
-                    padding: "12px 15px", 
-                    borderRadius: 6, 
+                    fontSize: "1.5rem", 
                     cursor: "pointer", 
-                    fontWeight: 600,
-                    width: "100%",
-                    fontSize: "0.95rem",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "8px"
+                    color: "#94a3b8",
+                    padding: 0
                   }}
                 >
-                  📍 View Location on Map ({selectedReport.latitude?.toFixed(4)}°, {selectedReport.longitude?.toFixed(4)}°)
+                  ×
                 </button>
-                {loadingLocation && <p style={{ margin: "10px 0 0 0", fontSize: "0.9rem", color: "#fbbf24" }}>Loading location...</p>}
-                {streetName && <p style={{ margin: "10px 0 0 0", fontSize: "1rem", color: "#4ade80", fontWeight: 700 }}>📌 <strong>{streetName}</strong></p>}
               </div>
 
-              {/* MAP MODAL */}
-              {showMap && (
-                <div style={{ background: "#0f172a", padding: 15, borderRadius: 8, marginBottom: 20, border: "2px solid #3b82f6" }}>
-                  <h3 style={{ margin: "0 0 12px 0", color: "#fbbf24", fontSize: "1rem" }}>🗺️ Emergency Location</h3>
-                  <div style={{ position: "relative", borderRadius: 8, overflow: "hidden", background: "#1a1f35", height: 350 }}>
-                    <iframe
-                      src={`https://www.google.com/maps?q=${encodeURIComponent(`${Number(selectedReport.latitude)},${Number(selectedReport.longitude)}`)}&z=17&output=embed`}
-                      width="100%"
-                      height="100%"
-                      style={{ border: 0 }}
-                      allowFullScreen=""
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade"
-                    />
-                  </div>
-                  <p style={{ margin: "12px 0 0 0", fontSize: "0.85rem", color: "#94a3b8" }}>
-                    ✓ Click on the map to get directions | Accuracy: ±{Math.round(selectedReport.accuracy || 0)}m
+              {/* Location */}
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ margin: "0 0 8px 0", fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>Location</p>
+                <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b" }}>
+                  {selectedReport.latitude?.toFixed(6)}°, {selectedReport.longitude?.toFixed(6)}°
+                </p>
+                <p style={{ margin: "4px 0 0 0", fontSize: "0.75rem", color: "#94a3b8" }}>
+                  Accuracy: ±{Math.round(selectedReport.accuracy || 0)}m
+                </p>
+                <button 
+                  onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${selectedReport.latitude},${selectedReport.longitude}`, "_blank")}
+                  style={{ 
+                    marginTop: 12, 
+                    width: "100%", 
+                    padding: "10px", 
+                    background: "#0f172a", 
+                    color: "white", 
+                    border: "none", 
+                    borderRadius: 6, 
+                    cursor: "pointer", 
+                    fontWeight: 500,
+                    fontSize: "0.875rem"
+                  }}
+                >
+                  Open in Google Maps
+                </button>
+              </div>
+
+              {/* Description */}
+              {selectedReport.description && (
+                <div style={{ marginBottom: 24 }}>
+                  <p style={{ margin: "0 0 8px 0", fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>Description</p>
+                  <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b" }}>
+                    {selectedReport.description}
                   </p>
-                  <button 
-                    onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${Number(selectedReport.latitude)},${Number(selectedReport.longitude)}`)}`, "_blank")}
-                    style={{ 
-                      width: "100%", 
-                      marginTop: 12, 
-                      padding: "10px", 
-                      background: "#2196f3", 
-                      color: "white", 
-                      border: "none", 
-                      borderRadius: 6, 
-                      cursor: "pointer", 
-                      fontWeight: 600,
-                      fontSize: "0.9rem"
-                    }}
-                  >
-                    🔗 Open in Google Maps
-                  </button>
                 </div>
               )}
 
-              {/* VOICE MESSAGE PLAYER */}
-              {selectedReport.voice_url && (
-                <div style={{ background: "#0f172a", padding: 15, borderRadius: 8, marginBottom: 20, border: "1px solid #475569" }}>
-                  <p style={{ margin: "0 0 12px 0", fontSize: "0.9rem", color: "#fbbf24", fontWeight: 600 }}>🎤 VOICE MESSAGE</p>
-                  <audio 
-                    controls 
-                    style={{ width: "100%", outline: "none", backgroundColor: "#1a1f35", borderRadius: 6 }}
-                    key={selectedReport.voice_url}
-                  >
-                    <source src={`${apiBase}${selectedReport.voice_url}`} type="audio/wav" />
-                    Your browser does not support the audio element.
-                  </audio>
+              {/* Responder */}
+              {selectedReport.responder_number && (
+                <div style={{ marginBottom: 24 }}>
+                  <p style={{ margin: "0 0 8px 0", fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>Responder Number</p>
+                  <p style={{ margin: 0, fontSize: "0.875rem", color: "#64748b" }}>
+                    {selectedReport.responder_number}
+                  </p>
                 </div>
               )}
 
-              {/* MEDIA GALLERY */}
-              {selectedReport.media_urls && selectedReport.media_urls.length > 0 && (
-                <div style={{ background: "#0f172a", padding: 15, borderRadius: 8, marginBottom: 20, border: "1px solid #475569" }}>
-                  <p style={{ margin: "0 0 12px 0", fontSize: "0.9rem", color: "#fbbf24", fontWeight: 600 }}>🖼️ MEDIA ({selectedReport.media_urls.length} files)</p>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
-                    {selectedReport.media_urls.map((url, idx) => {
-                      const fullUrl = url.startsWith("http") ? url : `${apiBase}${url}`;
-                      const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fullUrl);
-                      const isVideo = /\.(mp4|quicktime|mov|webm)$/i.test(fullUrl);
-                      return (
-                        <div key={idx} style={{ position: "relative", borderRadius: 6, overflow: "hidden", background: "#1a1f35", aspectRatio: "1", border: "1px solid #475569" }}>
-                          {isImage ? (
-                            <img 
-                              src={fullUrl} 
-                              alt={`Media ${idx + 1}`} 
-                              style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} 
-                              onClick={() => window.open(fullUrl, "_blank")}
-                              onError={(e) => { e.target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext x='50' y='50' fill='white' text-anchor='middle' dy='.3em'%3EError%3C/text%3E%3C/svg%3E"; }}
-                            />
-                          ) : isVideo ? (
-                            <video 
-                              src={fullUrl} 
-                              style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} 
-                              controls
-                              onError={() => console.error("Video failed to load:", fullUrl)}
-                            />
-                          ) : (
-                            <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: "0.75rem", textAlign: "center", padding: 5 }}>
-                              <a href={fullUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6", textDecoration: "underline" }}>
-                                View File
-                              </a>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {selectedReport.status !== "resolved" && <button onClick={() => { setSelectedReport(null); setShowMap(false); }} style={{ padding: "10px", borderRadius: 6, border: "none", background: "#51cf66", color: "white", cursor: "pointer", fontWeight: 600 }}>✓ Resolve</button>}
-                <button onClick={() => { setSelectedReport(null); setShowMap(false); }} style={{ padding: "10px", borderRadius: 6, border: "1px solid #475569", background: "transparent", color: "#94a3b8", cursor: "pointer", fontWeight: 600 }}>Close</button>
+              {/* Voice */}
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ margin: "0 0 8px 0", fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>Voice Message</p>
+                {selectedReport.voice_url ? (
+                  <audio controls style={{ width: "100%" }} src={selectedReport.voice_url} />
+                ) : (
+                  <p style={{ margin: 0, fontSize: "0.875rem", color: "#94a3b8", fontStyle: "italic" }}>No voice message</p>
+                )}
               </div>
+
+              {/* Media */}
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ margin: "0 0 8px 0", fontSize: "0.875rem", fontWeight: 600, color: "#0f172a" }}>
+                  Photos/Videos
+                </p>
+                {selectedReport.media_urls && selectedReport.media_urls.length > 0 ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                    {selectedReport.media_urls.map((url, idx) => (
+                      <img 
+                        key={idx}
+                        src={url} 
+                        alt={`Media ${idx + 1}`} 
+                        style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 6, cursor: "pointer", border: "1px solid #e2e8f0" }} 
+                        onClick={() => window.open(url, "_blank")}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, fontSize: "0.875rem", color: "#94a3b8", fontStyle: "italic" }}>No photos or videos</p>
+                )}
+              </div>
+
+              {/* Actions */}
+              {selectedReport.status !== "resolved" && (
+                <button 
+                  onClick={() => { 
+                    updateStatus(selectedReport.id, selectedReport.status === "pending" ? "responding" : "resolved"); 
+                    setSelectedReport(null); 
+                  }} 
+                  style={{ 
+                    width: "100%", 
+                    padding: "12px", 
+                    borderRadius: 6, 
+                    border: "none", 
+                    background: "#10b981", 
+                    color: "white", 
+                    cursor: "pointer", 
+                    fontWeight: 500,
+                    fontSize: "0.875rem"
+                  }}
+                >
+                  {selectedReport.status === "pending" ? "Start Responding" : "Mark as Resolved"}
+                </button>
+              )}
             </div>
           </div>
         )}
       </div>
-
-      <style jsx>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
     </div>
   );
 };
