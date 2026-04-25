@@ -1,0 +1,19 @@
+exports.id=526,exports.ids=[526],exports.modules={526:(e,t,i)=>{"use strict";i.a(e,async(e,r)=>{try{i.r(t),i.d(t,{default:()=>p});var n=i(997),o=i(4045),s=i(6689),a=i(5194),d=i.n(a);i(9637);var l=e([o]);o=(l.then?(await l)():l)[0],delete d().Icon.Default.prototype._getIconUrl,d().Icon.Default.mergeOptions({iconRetinaUrl:"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",iconUrl:"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",shadowUrl:"https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png"});let f=e=>d().divIcon({className:"custom-marker",html:`
+      <div style="
+        background: ${{fire:"#ff5252",medical:"#2196f3",crime:"#ff9800"}[e]};
+        width: 40px;
+        height: 40px;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+        border: 3px solid white;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        <span style="
+          transform: rotate(45deg);
+          font-size: 20px;
+        ">${{fire:"\uD83D\uDD25",medical:"\uD83C\uDFE5",crime:"\uD83D\uDE94"}[e]}</span>
+      </div>
+    `,iconSize:[40,40],iconAnchor:[20,40],popupAnchor:[0,-40]});function c({reports:e}){let t=(0,o.useMap)();return(0,s.useEffect)(()=>{if(e.length>0){let i=e.map(e=>[e.latitude,e.longitude]);t.fitBounds(i,{padding:[50,50],maxZoom:13})}},[e,t]),null}function p({reports:e,onMarkerClick:t}){return 0===e.length?n.jsx("div",{style:{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",background:"#f1f5f9",borderRadius:12,color:"#64748b"},children:(0,n.jsxs)("div",{style:{textAlign:"center"},children:[n.jsx("div",{style:{fontSize:"3rem",marginBottom:16},children:"\uD83D\uDDFA️"}),n.jsx("p",{style:{margin:0,fontSize:"0.875rem"},children:"No emergency locations to display"})]})}):(0,n.jsxs)(o.MapContainer,{center:[7.9465,-1.0232],zoom:7,style:{height:"100%",width:"100%",borderRadius:12},children:[n.jsx(o.TileLayer,{attribution:'\xa9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',url:"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}),n.jsx(c,{reports:e}),e.map(e=>n.jsx(o.Marker,{position:[e.latitude,e.longitude],icon:f(e.type),eventHandlers:{click:()=>t&&t(e)},children:n.jsx(o.Popup,{children:(0,n.jsxs)("div",{style:{minWidth:200},children:[(0,n.jsxs)("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingBottom:8,borderBottom:"1px solid #e2e8f0"},children:[n.jsx("span",{style:{fontSize:"1.5rem"},children:"fire"===e.type?"\uD83D\uDD25":"medical"===e.type?"\uD83C\uDFE5":"\uD83D\uDE94"}),(0,n.jsxs)("div",{children:[(0,n.jsxs)("div",{style:{fontWeight:600,fontSize:"0.875rem",textTransform:"capitalize"},children:[e.type," Emergency"]}),n.jsx("div",{style:{fontSize:"0.75rem",color:"#64748b"},children:new Date(e.created_at).toLocaleString()})]})]}),(0,n.jsxs)("div",{style:{fontSize:"0.75rem",color:"#64748b",marginBottom:4},children:[n.jsx("strong",{children:"Location:"})," ",e.latitude.toFixed(4),"\xb0, ",e.longitude.toFixed(4),"\xb0"]}),(0,n.jsxs)("div",{style:{fontSize:"0.75rem",marginBottom:8},children:[n.jsx("strong",{children:"Status:"})," ",n.jsx("span",{style:{padding:"2px 6px",borderRadius:4,fontSize:"0.7rem",fontWeight:600,textTransform:"uppercase",background:"pending"===e.status?"#fef2f2":"responding"===e.status?"#fff7ed":"#f0fdf4",color:"pending"===e.status?"#dc2626":"responding"===e.status?"#ea580c":"#16a34a"},children:e.status})]}),e.description&&n.jsx("div",{style:{fontSize:"0.75rem",color:"#475569",marginBottom:8},children:e.description}),n.jsx("button",{onClick:()=>t&&t(e),style:{width:"100%",padding:"6px 12px",background:"#0f172a",color:"white",border:"none",borderRadius:6,fontSize:"0.75rem",fontWeight:500,cursor:"pointer"},children:"View Details"})]})})},e.id))]})}r()}catch(e){r(e)}})},9637:()=>{}};

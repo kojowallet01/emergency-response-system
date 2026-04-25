@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST='{"user.js -> ../components/MapView":{"id":2655,"files":["static/chunks/0b7b90cd.e02b4646ad1954fa.js","static/chunks/655.e7b130de1f66bd25.js"]}}';
+self.__REACT_LOADABLE_MANIFEST='{"admin.js -> ../components/EmergencyMap":{"id":8565,"files":["static/chunks/0b7b90cd.e02b4646ad1954fa.js","static/css/d3e383b9ef67ddcb.css","static/chunks/565.daa89482cb957b1b.js"]},"user.js -> ../components/MapView":{"id":2655,"files":["static/chunks/0b7b90cd.e02b4646ad1954fa.js","static/chunks/655.e7b130de1f66bd25.js"]}}';
