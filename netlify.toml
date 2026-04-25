@@ -1,6 +1,7 @@
 [build]
-  command = "cd frontend && npm install && npm run build"
-  publish = "frontend/out"
+  base = "frontend"
+  command = "npm install && npm run build"
+  publish = "out"
 
 [dev]
   command = "cd frontend && npm run dev"
