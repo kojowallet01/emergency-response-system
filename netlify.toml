@@ -27,6 +27,11 @@
 
 # Specific routes
 [[redirects]]
+  from = "/login"
+  to = "/login/index.html"
+  status = 200
+
+[[redirects]]
   from = "/admin"
   to = "/admin/index.html"
   status = 200
@@ -39,4 +44,9 @@
 [[redirects]]
   from = "/user"
   to = "/user/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/manage-admins"
+  to = "/manage-admins/index.html"
   status = 200
