@@ -307,6 +307,8 @@ button:disabled {
 }
 
 /* ============= RESPONSIVE ============= */
+
+/* Tablet and larger phones */
 @media (max-width: 768px) {
   .container {
     padding: 15px;
@@ -376,7 +378,12 @@ button:disabled {
   }
 }
 
+/* Small phones */
 @media (max-width: 480px) {
+  html, body {
+    font-size: 14px; /* Base font size for small screens */
+  }
+
   .container {
     padding: 10px;
   }
@@ -384,6 +391,7 @@ button:disabled {
   .container h1 {
     font-size: 1.5rem;
     margin-bottom: 6px;
+    line-height: 1.2;
   }
 
   .subtitle {
@@ -404,6 +412,7 @@ button:disabled {
 
   .card p {
     font-size: 0.9rem;
+    line-height: 1.5;
   }
 
   .sos {
@@ -441,6 +450,32 @@ button:disabled {
   }
 }
 
+/* Very small phones (320px width) */
+@media (max-width: 360px) {
+  html, body {
+    font-size: 13px;
+  }
+
+  .container h1 {
+    font-size: 1.3rem;
+  }
+
+  .card {
+    padding: 12px;
+  }
+
+  .big-btn {
+    height: 70px;
+    font-size: 0.95rem;
+    padding: 10px;
+  }
+
+  button {
+    padding: 10px 14px;
+    font-size: 0.8rem;
+  }
+}
+
 /* ============= TOUCH-FRIENDLY IMPROVEMENTS ============= */
 @media (hover: none) and (pointer: coarse) {
   /* This targets touch devices */
@@ -473,6 +508,74 @@ button:disabled {
   button:active {
     transform: scale(0.95);
     opacity: 0.9;
+  }
+}
+
+/* ============= ANDROID SPECIFIC FIXES ============= */
+@media screen and (max-width: 768px) {
+  /* Fix for Android Chrome address bar */
+  .container {
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+  }
+
+  /* Better scrolling on Android */
+  body {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
+  }
+
+  /* Fix input zoom on Android */
+  input, textarea, select {
+    font-size: 16px !important; /* Prevents zoom */
+  }
+
+  /* Better tap highlighting */
+  * {
+    -webkit-tap-highlight-color: rgba(102, 126, 234, 0.2);
+  }
+
+  /* Prevent text selection on buttons */
+  button, .big-btn {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Better focus states for Android */
+  input:focus, textarea:focus, select:focus {
+    outline: 2px solid #667eea;
+    outline-offset: 2px;
+  }
+}
+
+/* ============= LANDSCAPE MODE ============= */
+@media (max-width: 768px) and (orientation: landscape) {
+  .container {
+    padding: 10px;
+  }
+
+  .container h1 {
+    font-size: 1.3rem;
+    margin-bottom: 5px;
+  }
+
+  .subtitle {
+    font-size: 0.8rem;
+    margin-bottom: 10px;
+  }
+
+  .card {
+    padding: 15px;
+  }
+
+  .big-btn {
+    height: 60px;
+    font-size: 0.9rem;
+  }
+
+  .row {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
   }
 }
 
