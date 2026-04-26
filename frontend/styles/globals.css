@@ -308,21 +308,39 @@ button:disabled {
 
 /* ============= RESPONSIVE ============= */
 @media (max-width: 768px) {
+  .container {
+    padding: 15px;
+  }
+
   .container h1 {
     font-size: 1.8rem;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    font-size: 0.9rem;
+    margin-bottom: 20px;
   }
 
   .row {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .big-btn {
-    height: 80px;
-    font-size: 1rem;
+    height: 90px;
+    font-size: 1.1rem;
+    padding: 15px;
   }
 
   .card {
     padding: 20px;
+    border-radius: 15px;
+    max-width: 100%;
+  }
+
+  .card h3 {
+    font-size: 1.4rem;
   }
 
   .sos {
@@ -330,20 +348,62 @@ button:disabled {
     height: 80px;
     font-size: 1.5rem;
   }
+
+  /* Better button spacing on mobile */
+  button {
+    padding: 12px 20px;
+    font-size: 0.9rem;
+    min-height: 44px; /* Touch-friendly */
+  }
+
+  /* Better form inputs on mobile */
+  textarea, input[type="file"], input[type="text"], input[type="email"], input[type="password"], select {
+    padding: 14px;
+    font-size: 16px; /* Prevents zoom on iOS */
+    min-height: 48px; /* Touch-friendly */
+  }
+
+  /* Admin dashboard mobile fixes */
+  .admin-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .admin-actions button {
+    width: 100%;
+    padding: 12px;
+    font-size: 0.9rem;
+  }
 }
 
 @media (max-width: 480px) {
-  .container h1 {
-    font-size: 1.5rem;
+  .container {
+    padding: 10px;
   }
 
-  .container {
-    padding: 15px;
+  .container h1 {
+    font-size: 1.5rem;
+    margin-bottom: 6px;
+  }
+
+  .subtitle {
+    font-size: 0.85rem;
+    margin-bottom: 15px;
   }
 
   .card {
     padding: 15px;
-    margin-bottom: 15px;
+    margin-bottom: 12px;
+    border-radius: 12px;
+  }
+
+  .card h3 {
+    font-size: 1.2rem;
+    margin-bottom: 10px;
+  }
+
+  .card p {
+    font-size: 0.9rem;
   }
 
   .sos {
@@ -353,8 +413,66 @@ button:disabled {
   }
 
   .big-btn {
-    height: 70px;
-    font-size: 0.9rem;
+    height: 80px;
+    font-size: 1rem;
+    padding: 12px;
+  }
+
+  .row {
+    gap: 10px;
+  }
+
+  /* Smaller buttons on very small screens */
+  button {
+    padding: 10px 16px;
+    font-size: 0.85rem;
+    min-height: 44px;
+  }
+
+  /* Better text inputs */
+  textarea, input, select {
+    font-size: 16px; /* Prevents zoom */
+    padding: 12px;
+  }
+
+  /* Map smaller on mobile */
+  .map {
+    height: 250px;
+  }
+}
+
+/* ============= TOUCH-FRIENDLY IMPROVEMENTS ============= */
+@media (hover: none) and (pointer: coarse) {
+  /* This targets touch devices */
+  button, .big-btn, a {
+    min-height: 44px; /* Apple's recommended touch target */
+    min-width: 44px;
+  }
+
+  /* Larger tap targets */
+  .material-icons {
+    font-size: 24px;
+    padding: 10px;
+  }
+
+  /* Remove hover effects on touch devices */
+  .big-btn:hover {
+    transform: none;
+  }
+
+  button:hover {
+    transform: none;
+  }
+
+  /* Add active state instead */
+  .big-btn:active {
+    transform: scale(0.95);
+    opacity: 0.9;
+  }
+
+  button:active {
+    transform: scale(0.95);
+    opacity: 0.9;
   }
 }
 
