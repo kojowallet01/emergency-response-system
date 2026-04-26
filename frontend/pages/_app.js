@@ -1,4 +1,5 @@
 ﻿import '../styles/globals.css';
+import '../styles/admin-mobile.css';
 import Head from 'next/head';
 import { useEffect } from 'react';
 
