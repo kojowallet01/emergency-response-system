@@ -210,6 +210,9 @@ app.get('/geocode/resolve', async (req, res) => {
 });
 
 // Routes
+const smsRoutes = require('./routes/sms');
+app.use('/sms', smsRoutes);
+
 app.post('/report', createLimiter, upload.any(), async (req, res) => {
   try {
     const { type, latitude, longitude, accuracy, description, responderNumber } = req.body;

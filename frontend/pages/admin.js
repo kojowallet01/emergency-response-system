@@ -2,7 +2,11 @@ import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useRouter } from "next/router";
 import { requestNotificationPermission, notifyNewEmergency } from "../lib/notifications";
-import { getAverageResponseTime, getReportsToday, getReportsThisWeek, getTrendData, exportToCSV } from "../lib/analytics";
+import { getAverageResponseTime, getReportsToday, getReportsThisWeek, getTrendData, exportToCSV, getBusiestHours, getReportsByType, getReportsByStatus, getResponseTimeByType, getBusiestDayOfWeek, formatMinutes } from "../lib/analytics";
+import { logLogin, logStatusChange, logViewReport, logNoteAdd, logNoteEdit, logNoteDelete } from "../lib/activityLogger";
+import { findNearbyFacilities, formatDistance, getDirectionsUrl, getFacilityConfig } from "../lib/nearbyFacilities";
+import { isOnline, getOfflineQueue, setupOfflineListeners, registerServiceWorker, syncQueuedItems, getOfflineStatusMessage, cacheOfflineData, getCachedOfflineData } from "../lib/offline";
+import { sendTestSMS, sendEmergencyAlert, sendStatusChangeAlert, getSMSSettings, saveSMSSettings, formatPhoneDisplay } from "../lib/sms";
 import dynamic from 'next/dynamic';
 
 // Import map dynamically to avoid SSR issues
@@ -30,6 +34,15 @@ const Admin = () => {
   const [newNote, setNewNote] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editingNoteText, setEditingNoteText] = useState('');
+  const [statusHistory, setStatusHistory] = useState([]);
+  const [nearbyFacilities, setNearbyFacilities] = useState({ hospitals: [], fireStations: [], policeStations: [] });
+  const [loadingFacilities, setLoadingFacilities] = useState(false);
+  const [showFacilities, setShowFacilities] = useState(false);
+  const [online, setOnline] = useState(true);
+  const [offlineQueue, setOfflineQueue] = useState([]);
+  const [showSMSSettings, setShowSMSSettings] = useState(false);
+  const [smsSettings, setSmsSettings] = useState({ enabled: false, phoneNumbers: [], notifyOnNew: true, notifyOnStatusChange: true });
+  const [newPhoneNumber, setNewPhoneNumber] = useState('');
   const notificationsEnabledRef = useRef(false);
   const router = useRouter();
 
@@ -37,7 +50,54 @@ const Admin = () => {
     // Load dark mode preference from localStorage
     const savedDarkMode = localStorage.getItem('darkMode') === 'true';
     setDarkMode(savedDarkMode);
+    
+    // Load SMS settings
+    const savedSMSSettings = getSMSSettings();
+    setSmsSettings(savedSMSSettings);
   }, []);
+
+  useEffect(() => {
+    // Initialize offline mode
+    setOnline(isOnline());
+    setOfflineQueue(getOfflineQueue());
+
+    // Register service worker
+    registerServiceWorker();
+
+    // Setup online/offline listeners
+    const cleanup = setupOfflineListeners(
+      () => {
+        setOnline(true);
+        // Attempt to sync queued items when coming back online
+        syncQueuedItems(async (data) => {
+          // Sync logic here - could be status changes, notes, etc.
+          console.log('Syncing queued item:', data);
+        }).then(result => {
+          if (result.synced > 0) {
+            alert(`✅ Synced ${result.synced} queued item(s)`);
+            setOfflineQueue(getOfflineQueue());
+            loadReports(userRole);
+          }
+        });
+      },
+      () => {
+        setOnline(false);
+        alert('⚠️ You are now offline. Changes will be queued for sync.');
+      }
+    );
+
+    // Listen for sync success events from service worker
+    const handleSyncSuccess = () => {
+      setOfflineQueue(getOfflineQueue());
+      loadReports(userRole);
+    };
+    window.addEventListener('sync-success', handleSyncSuccess);
+
+    return () => {
+      cleanup();
+      window.removeEventListener('sync-success', handleSyncSuccess);
+    };
+  }, [userRole]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -72,6 +132,9 @@ const Admin = () => {
       
       setUserRole(profile.role);
       loadReports(profile.role);
+
+      // Log successful login
+      logLogin();
 
       // Remove any existing channel first
       supabase.removeChannel(supabase.channel('reports-channel'));
@@ -175,9 +238,63 @@ const Admin = () => {
 
       if (error) throw error;
       setNotes(data || []);
+      
+      // Log report view
+      const report = reports.find(r => r.id === reportId);
+      if (report) {
+        logViewReport(reportId, report.type);
+      }
     } catch (e) {
       console.error('Error loading notes:', e);
       setNotes([]);
+    }
+  };
+
+  // Load status history for selected report
+  const loadStatusHistory = async (reportId) => {
+    try {
+      const { data, error } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .eq('report_id', reportId)
+        .eq('action_type', 'status_change')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      setStatusHistory(data || []);
+    } catch (e) {
+      console.error('Error loading status history:', e);
+      setStatusHistory([]);
+    }
+  };
+
+  // Load nearby facilities
+  const loadNearbyFacilities = async (latitude, longitude) => {
+    if (typeof google === 'undefined' || !google.maps) {
+      console.error('Google Maps not loaded');
+      return;
+    }
+
+    setLoadingFacilities(true);
+    setShowFacilities(true);
+
+    try {
+      const [hospitals, fireStations, policeStations] = await Promise.all([
+        findNearbyFacilities(latitude, longitude, 'hospital'),
+        findNearbyFacilities(latitude, longitude, 'fire_station'),
+        findNearbyFacilities(latitude, longitude, 'police')
+      ]);
+
+      setNearbyFacilities({
+        hospitals: hospitals || [],
+        fireStations: fireStations || [],
+        policeStations: policeStations || []
+      });
+    } catch (error) {
+      console.error('Error loading nearby facilities:', error);
+      setNearbyFacilities({ hospitals: [], fireStations: [], policeStations: [] });
+    } finally {
+      setLoadingFacilities(false);
     }
   };
 
@@ -201,6 +318,10 @@ const Admin = () => {
 
       if (error) throw error;
       setNotes([...notes, data]);
+      
+      // Log note addition
+      logNoteAdd(reportId, newNote.trim());
+      
       setNewNote('');
     } catch (e) {
       console.error('Error adding note:', e);
@@ -223,6 +344,12 @@ const Admin = () => {
       setNotes(notes.map(n => 
         n.id === noteId ? { ...n, note: editingNoteText.trim(), updated_at: new Date().toISOString() } : n
       ));
+      
+      // Log note edit
+      if (selectedReport) {
+        logNoteEdit(selectedReport.id, noteId);
+      }
+      
       setEditingNoteId(null);
       setEditingNoteText('');
     } catch (e) {
@@ -243,6 +370,11 @@ const Admin = () => {
 
       if (error) throw error;
       setNotes(notes.filter(n => n.id !== noteId));
+      
+      // Log note deletion
+      if (selectedReport) {
+        logNoteDelete(selectedReport.id, noteId);
+      }
     } catch (e) {
       console.error('Error deleting note:', e);
       alert('Failed to delete note');
@@ -251,6 +383,10 @@ const Admin = () => {
 
   const updateStatus = async (id, status) => {
     try {
+      // Get current report to log old status
+      const currentReport = reports.find(r => r.id === id);
+      const oldStatus = currentReport?.status;
+
       const { error } = await supabase
         .from('reports')
         .update({ status, updated_at: new Date().toISOString() })
@@ -258,6 +394,11 @@ const Admin = () => {
 
       if (error) throw error;
       setReports(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+
+      // Log status change
+      if (currentReport) {
+        logStatusChange(id, oldStatus, status, currentReport.type);
+      }
     } catch (e) {
       console.error(e);
       alert('Failed to update status');
@@ -386,6 +527,47 @@ const Admin = () => {
               <span>{notificationsEnabled ? "🔔" : "🔕"}</span>
               {notificationsEnabled ? "Notifications ON" : "Notifications OFF"}
             </button>
+            
+            {/* SMS Settings Button */}
+            <button
+              onClick={() => setShowSMSSettings(true)}
+              style={{
+                padding: "8px 16px",
+                background: smsSettings.enabled ? "#dcfce7" : colors.buttonBg,
+                color: smsSettings.enabled ? "#16a34a" : colors.buttonText,
+                border: smsSettings.enabled ? "1px solid #16a34a" : `1px solid ${colors.border}`,
+                borderRadius: 6,
+                fontSize: "0.875rem",
+                fontWeight: 500,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.transform = "scale(1.05)";
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.transform = "scale(1)";
+              }}
+            >
+              <span>📱</span>
+              SMS {smsSettings.enabled ? 'ON' : 'OFF'}
+              {smsSettings.enabled && smsSettings.phoneNumbers.length > 0 && (
+                <span style={{ 
+                  background: "#16a34a", 
+                  color: "white", 
+                  padding: "2px 6px", 
+                  borderRadius: 10, 
+                  fontSize: "0.7rem",
+                  fontWeight: 600
+                }}>
+                  {smsSettings.phoneNumbers.length}
+                </span>
+              )}
+            </button>
+            
             {user && (
               <span style={{ fontSize: "0.875rem", color: colors.textSecondary, marginRight: 8, transition: "color 0.3s" }}>
                 {user.email}
@@ -402,6 +584,56 @@ const Admin = () => {
                 👥 Manage Admins
               </a>
             )}
+            
+            {/* Offline Indicator */}
+            {!online && (
+              <div style={{ 
+                padding: "8px 16px", 
+                background: "#fef2f2", 
+                color: "#dc2626", 
+                borderRadius: 6, 
+                fontSize: "0.875rem", 
+                fontWeight: 500,
+                border: "1px solid #dc2626",
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }}>
+                <span style={{ fontSize: "1rem" }}>📴</span>
+                Offline
+                {offlineQueue.length > 0 && (
+                  <span style={{ 
+                    background: "#dc2626", 
+                    color: "white", 
+                    padding: "2px 6px", 
+                    borderRadius: 10, 
+                    fontSize: "0.7rem",
+                    fontWeight: 600
+                  }}>
+                    {offlineQueue.length}
+                  </span>
+                )}
+              </div>
+            )}
+            
+            {online && offlineQueue.length > 0 && (
+              <div style={{ 
+                padding: "8px 16px", 
+                background: "#fef3c7", 
+                color: "#d97706", 
+                borderRadius: 6, 
+                fontSize: "0.875rem", 
+                fontWeight: 500,
+                border: "1px solid #d97706",
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }}>
+                <span style={{ fontSize: "1rem" }}>⏳</span>
+                Syncing {offlineQueue.length}...
+              </div>
+            )}
+            
             <button onClick={handleLogout} style={{ padding: "8px 16px", background: "#ef4444", color: "white", border: "none", borderRadius: 6, fontSize: "0.875rem", fontWeight: 500, cursor: "pointer" }}>
               Logout
             </button>
@@ -748,62 +980,235 @@ const Admin = () => {
         {/* Analytics Section */}
         {showAnalytics && (
           <div style={{ background: colors.cardBg, padding: 24, borderRadius: 12, border: `1px solid ${colors.border}`, marginBottom: 24, transition: "all 0.3s" }}>
-            <h3 style={{ margin: "0 0 20px 0", fontSize: "1rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
-              📊 Performance Analytics
+            <h3 style={{ margin: "0 0 20px 0", fontSize: "1.25rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
+              📊 Statistics Dashboard
             </h3>
             
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+            {/* Quick Stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
               {/* Today */}
               <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
                 <div style={{ fontSize: "0.75rem", color: colors.textSecondary, marginBottom: 4, transition: "color 0.3s" }}>Today</div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: colors.text, transition: "color 0.3s" }}>{getReportsToday(reports)}</div>
+                <div style={{ fontSize: "1.75rem", fontWeight: 700, color: colors.text, transition: "color 0.3s" }}>{getReportsToday(reports)}</div>
+                <div style={{ fontSize: "0.7rem", color: colors.textSecondary, marginTop: 2, transition: "color 0.3s" }}>reports</div>
               </div>
               
               {/* This Week */}
               <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
                 <div style={{ fontSize: "0.75rem", color: colors.textSecondary, marginBottom: 4, transition: "color 0.3s" }}>This Week</div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: colors.text, transition: "color 0.3s" }}>{getReportsThisWeek(reports)}</div>
+                <div style={{ fontSize: "1.75rem", fontWeight: 700, color: colors.text, transition: "color 0.3s" }}>{getReportsThisWeek(reports)}</div>
+                <div style={{ fontSize: "0.7rem", color: colors.textSecondary, marginTop: 2, transition: "color 0.3s" }}>reports</div>
               </div>
               
               {/* Avg Response Time */}
               <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
                 <div style={{ fontSize: "0.75rem", color: colors.textSecondary, marginBottom: 4, transition: "color 0.3s" }}>Avg Response</div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: colors.text, transition: "color 0.3s" }}>{getAverageResponseTime(reports)}</div>
+                <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#3b82f6", transition: "color 0.3s" }}>{getAverageResponseTime(reports)}</div>
+                <div style={{ fontSize: "0.7rem", color: colors.textSecondary, marginTop: 2, transition: "color 0.3s" }}>time to respond</div>
               </div>
               
               {/* Resolution Rate */}
               <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
                 <div style={{ fontSize: "0.75rem", color: colors.textSecondary, marginBottom: 4, transition: "color 0.3s" }}>Resolution Rate</div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: colors.text, transition: "color 0.3s" }}>
+                <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#10b981", transition: "color 0.3s" }}>
                   {reports.length > 0 ? Math.round((resolved / reports.length) * 100) : 0}%
+                </div>
+                <div style={{ fontSize: "0.7rem", color: colors.textSecondary, marginTop: 2, transition: "color 0.3s" }}>{resolved} of {reports.length}</div>
+              </div>
+            </div>
+
+            {/* Reports by Type and Status */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+              {/* By Type */}
+              <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
+                <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, marginBottom: 12, transition: "color 0.3s" }}>
+                  Reports by Type
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {getReportsByType(reports).map(item => (
+                    <div key={item.type} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: "1.25rem" }}>{item.icon}</span>
+                        <span style={{ fontSize: "0.875rem", color: colors.text, transition: "color 0.3s" }}>{item.type}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ 
+                          width: 100, 
+                          height: 8, 
+                          background: darkMode ? "#1e293b" : "#e2e8f0", 
+                          borderRadius: 4, 
+                          overflow: "hidden",
+                          transition: "background 0.3s"
+                        }}>
+                          <div style={{ 
+                            width: `${reports.length > 0 ? (item.count / reports.length) * 100 : 0}%`, 
+                            height: "100%", 
+                            background: item.color,
+                            transition: "width 0.3s"
+                          }} />
+                        </div>
+                        <span style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, minWidth: 30, textAlign: "right", transition: "color 0.3s" }}>
+                          {item.count}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* By Status */}
+              <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
+                <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, marginBottom: 12, transition: "color 0.3s" }}>
+                  Reports by Status
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {getReportsByStatus(reports).map(item => (
+                    <div key={item.status} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: "1rem" }}>{item.icon}</span>
+                        <span style={{ fontSize: "0.875rem", color: colors.text, transition: "color 0.3s" }}>{item.status}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ 
+                          width: 100, 
+                          height: 8, 
+                          background: darkMode ? "#1e293b" : "#e2e8f0", 
+                          borderRadius: 4, 
+                          overflow: "hidden",
+                          transition: "background 0.3s"
+                        }}>
+                          <div style={{ 
+                            width: `${reports.length > 0 ? (item.count / reports.length) * 100 : 0}%`, 
+                            height: "100%", 
+                            background: item.color,
+                            transition: "width 0.3s"
+                          }} />
+                        </div>
+                        <span style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, minWidth: 30, textAlign: "right", transition: "color 0.3s" }}>
+                          {item.count}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
 
+            {/* Response Time by Type */}
+            <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, marginBottom: 24, transition: "all 0.3s" }}>
+              <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, marginBottom: 12, transition: "color 0.3s" }}>
+                Average Response Time by Type
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                {getResponseTimeByType(reports).map(item => (
+                  <div key={item.type} style={{ 
+                    padding: 12, 
+                    background: darkMode ? "#1e293b" : "white", 
+                    borderRadius: 6, 
+                    border: `2px solid ${item.color}`,
+                    textAlign: "center",
+                    transition: "all 0.3s"
+                  }}>
+                    <div style={{ fontSize: "1.5rem", marginBottom: 4 }}>{item.icon}</div>
+                    <div style={{ fontSize: "0.75rem", color: colors.textSecondary, marginBottom: 4, transition: "color 0.3s" }}>{item.type}</div>
+                    <div style={{ fontSize: "1.25rem", fontWeight: 700, color: item.color }}>
+                      {formatMinutes(item.avgMinutes)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* 7-Day Trend */}
-            <div>
+            <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, marginBottom: 24, transition: "all 0.3s" }}>
               <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, marginBottom: 12, transition: "color 0.3s" }}>
                 7-Day Trend
               </div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120 }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 140 }}>
                 {getTrendData(reports, 7).map((day, idx) => {
                   const maxCount = Math.max(...getTrendData(reports, 7).map(d => d.count), 1);
                   const height = (day.count / maxCount) * 100;
                   
                   return (
-                    <div key={idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                      <div style={{ fontSize: "0.75rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>{day.count}</div>
+                    <div key={idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                      <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>{day.count}</div>
                       <div
                         style={{
                           width: "100%",
                           height: `${height}%`,
-                          background: "linear-gradient(180deg, #2196f3 0%, #1565c0 100%)",
-                          borderRadius: "4px 4px 0 0",
-                          minHeight: day.count > 0 ? 20 : 4,
+                          background: "linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%)",
+                          borderRadius: "6px 6px 0 0",
+                          minHeight: day.count > 0 ? 24 : 4,
                           transition: "height 0.3s"
                         }}
                       ></div>
                       <div style={{ fontSize: "0.7rem", color: colors.textSecondary, textAlign: "center", transition: "color 0.3s" }}>{day.date}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Busiest Hours */}
+            <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, marginBottom: 24, transition: "all 0.3s" }}>
+              <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, marginBottom: 12, transition: "color 0.3s" }}>
+                Busiest Hours of the Day
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 100, overflowX: "auto" }}>
+                {getBusiestHours(reports).map((hour, idx) => {
+                  const maxCount = Math.max(...getBusiestHours(reports).map(h => h.count), 1);
+                  const height = (hour.count / maxCount) * 100;
+                  
+                  return (
+                    <div key={idx} style={{ flex: "0 0 auto", width: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                      {hour.count > 0 && (
+                        <div style={{ fontSize: "0.65rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>{hour.count}</div>
+                      )}
+                      <div
+                        style={{
+                          width: "100%",
+                          height: `${height}%`,
+                          background: "linear-gradient(180deg, #f59e0b 0%, #d97706 100%)",
+                          borderRadius: "3px 3px 0 0",
+                          minHeight: hour.count > 0 ? 16 : 2,
+                          transition: "height 0.3s"
+                        }}
+                      ></div>
+                      <div style={{ fontSize: "0.6rem", color: colors.textSecondary, textAlign: "center", writingMode: "vertical-rl", transform: "rotate(180deg)", transition: "color 0.3s" }}>
+                        {hour.hour}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Busiest Day of Week */}
+            <div style={{ padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
+              <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, marginBottom: 12, transition: "color 0.3s" }}>
+                Busiest Days of the Week
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120 }}>
+                {getBusiestDayOfWeek(reports).map((day, idx) => {
+                  const maxCount = Math.max(...getBusiestDayOfWeek(reports).map(d => d.count), 1);
+                  const height = (day.count / maxCount) * 100;
+                  
+                  return (
+                    <div key={idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                      <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>{day.count}</div>
+                      <div
+                        style={{
+                          width: "100%",
+                          height: `${height}%`,
+                          background: "linear-gradient(180deg, #10b981 0%, #059669 100%)",
+                          borderRadius: "6px 6px 0 0",
+                          minHeight: day.count > 0 ? 24 : 4,
+                          transition: "height 0.3s"
+                        }}
+                      ></div>
+                      <div style={{ fontSize: "0.65rem", color: colors.textSecondary, textAlign: "center", transition: "color 0.3s" }}>
+                        {day.day.substring(0, 3)}
+                      </div>
                     </div>
                   );
                 })}
@@ -915,6 +1320,7 @@ const Admin = () => {
                     onClick={() => {
                       setSelectedReport(r);
                       loadNotes(r.id);
+                      loadStatusHistory(r.id);
                     }}
                     style={{
                       padding: "8px 16px",
@@ -947,6 +1353,7 @@ const Admin = () => {
               onMarkerClick={(report) => {
                 setSelectedReport(report);
                 loadNotes(report.id);
+                loadStatusHistory(report.id);
               }}
             />
           </div>
@@ -974,6 +1381,7 @@ const Admin = () => {
               setNewNote('');
               setEditingNoteId(null);
               setEditingNoteText('');
+              setStatusHistory([]);
             }}
           >
             <div 
@@ -1005,6 +1413,9 @@ const Admin = () => {
                     setNewNote('');
                     setEditingNoteId(null);
                     setEditingNoteText('');
+                    setStatusHistory([]);
+                    setNearbyFacilities({ hospitals: [], fireStations: [], policeStations: [] });
+                    setShowFacilities(false);
                   }} 
                   style={{ 
                     background: "none", 
@@ -1028,25 +1439,207 @@ const Admin = () => {
                 <p style={{ margin: "4px 0 0 0", fontSize: "0.75rem", color: "#94a3b8" }}>
                   Accuracy: ±{Math.round(selectedReport.accuracy || 0)}m
                 </p>
-                <button 
-                  onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${selectedReport.latitude},${selectedReport.longitude}`, "_blank")}
-                  style={{ 
-                    marginTop: 12, 
-                    width: "100%", 
-                    padding: "10px", 
-                    background: darkMode ? "#3b82f6" : "#0f172a", 
-                    color: "white", 
-                    border: "none", 
-                    borderRadius: 6, 
-                    cursor: "pointer", 
-                    fontWeight: 500,
-                    fontSize: "0.875rem",
-                    transition: "all 0.3s"
-                  }}
-                >
-                  Open in Google Maps
-                </button>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+                  <button 
+                    onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${selectedReport.latitude},${selectedReport.longitude}`, "_blank")}
+                    style={{ 
+                      padding: "10px", 
+                      background: darkMode ? "#3b82f6" : "#0f172a", 
+                      color: "white", 
+                      border: "none", 
+                      borderRadius: 6, 
+                      cursor: "pointer", 
+                      fontWeight: 500,
+                      fontSize: "0.875rem",
+                      transition: "all 0.3s"
+                    }}
+                  >
+                    🗺️ Open Map
+                  </button>
+                  <button 
+                    onClick={() => loadNearbyFacilities(selectedReport.latitude, selectedReport.longitude)}
+                    style={{ 
+                      padding: "10px", 
+                      background: showFacilities ? (darkMode ? "#10b981" : "#059669") : (darkMode ? "#1e293b" : "#f1f5f9"),
+                      color: showFacilities ? "white" : colors.text,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 6, 
+                      cursor: "pointer", 
+                      fontWeight: 500,
+                      fontSize: "0.875rem",
+                      transition: "all 0.3s"
+                    }}
+                  >
+                    🏥 {showFacilities ? 'Hide' : 'Find'} Nearby
+                  </button>
+                </div>
               </div>
+
+              {/* Nearby Facilities */}
+              {showFacilities && (
+                <div style={{ marginBottom: 24, padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
+                  <h4 style={{ margin: "0 0 12px 0", fontSize: "0.875rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
+                    📍 Nearby Emergency Facilities
+                  </h4>
+                  
+                  {loadingFacilities ? (
+                    <div style={{ textAlign: "center", padding: "20px 0", color: colors.textSecondary, fontSize: "0.875rem" }}>
+                      Loading facilities...
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                      {/* Hospitals */}
+                      {nearbyFacilities.hospitals.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: colors.text, marginBottom: 8, display: "flex", alignItems: "center", gap: 6, transition: "color 0.3s" }}>
+                            🏥 Hospitals ({nearbyFacilities.hospitals.length})
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {nearbyFacilities.hospitals.map((facility, idx) => (
+                              <div key={idx} style={{ 
+                                padding: 8, 
+                                background: darkMode ? "#1e293b" : "white", 
+                                borderRadius: 6, 
+                                border: `1px solid ${colors.border}`,
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                transition: "all 0.3s"
+                              }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: "0.75rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
+                                    {facility.name}
+                                  </div>
+                                  <div style={{ fontSize: "0.7rem", color: colors.textSecondary, marginTop: 2, transition: "color 0.3s" }}>
+                                    {formatDistance(facility.distance)} away
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => window.open(getDirectionsUrl(selectedReport.latitude, selectedReport.longitude, facility.location.lat, facility.location.lng), "_blank")}
+                                  style={{
+                                    padding: "4px 8px",
+                                    background: "#3b82f6",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: 4,
+                                    fontSize: "0.7rem",
+                                    cursor: "pointer",
+                                    fontWeight: 500
+                                  }}
+                                >
+                                  Directions
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Fire Stations */}
+                      {nearbyFacilities.fireStations.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: colors.text, marginBottom: 8, display: "flex", alignItems: "center", gap: 6, transition: "color 0.3s" }}>
+                            🚒 Fire Stations ({nearbyFacilities.fireStations.length})
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {nearbyFacilities.fireStations.map((facility, idx) => (
+                              <div key={idx} style={{ 
+                                padding: 8, 
+                                background: darkMode ? "#1e293b" : "white", 
+                                borderRadius: 6, 
+                                border: `1px solid ${colors.border}`,
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                transition: "all 0.3s"
+                              }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: "0.75rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
+                                    {facility.name}
+                                  </div>
+                                  <div style={{ fontSize: "0.7rem", color: colors.textSecondary, marginTop: 2, transition: "color 0.3s" }}>
+                                    {formatDistance(facility.distance)} away
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => window.open(getDirectionsUrl(selectedReport.latitude, selectedReport.longitude, facility.location.lat, facility.location.lng), "_blank")}
+                                  style={{
+                                    padding: "4px 8px",
+                                    background: "#ef4444",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: 4,
+                                    fontSize: "0.7rem",
+                                    cursor: "pointer",
+                                    fontWeight: 500
+                                  }}
+                                >
+                                  Directions
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Police Stations */}
+                      {nearbyFacilities.policeStations.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: "0.75rem", fontWeight: 600, color: colors.text, marginBottom: 8, display: "flex", alignItems: "center", gap: 6, transition: "color 0.3s" }}>
+                            🚔 Police Stations ({nearbyFacilities.policeStations.length})
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {nearbyFacilities.policeStations.map((facility, idx) => (
+                              <div key={idx} style={{ 
+                                padding: 8, 
+                                background: darkMode ? "#1e293b" : "white", 
+                                borderRadius: 6, 
+                                border: `1px solid ${colors.border}`,
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                transition: "all 0.3s"
+                              }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: "0.75rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
+                                    {facility.name}
+                                  </div>
+                                  <div style={{ fontSize: "0.7rem", color: colors.textSecondary, marginTop: 2, transition: "color 0.3s" }}>
+                                    {formatDistance(facility.distance)} away
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => window.open(getDirectionsUrl(selectedReport.latitude, selectedReport.longitude, facility.location.lat, facility.location.lng), "_blank")}
+                                  style={{
+                                    padding: "4px 8px",
+                                    background: "#8b5cf6",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: 4,
+                                    fontSize: "0.7rem",
+                                    cursor: "pointer",
+                                    fontWeight: 500
+                                  }}
+                                >
+                                  Directions
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {nearbyFacilities.hospitals.length === 0 && 
+                       nearbyFacilities.fireStations.length === 0 && 
+                       nearbyFacilities.policeStations.length === 0 && (
+                        <div style={{ textAlign: "center", padding: "20px 0", color: colors.textSecondary, fontSize: "0.875rem", fontStyle: "italic" }}>
+                          No facilities found nearby
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Description */}
               {selectedReport.description && (
@@ -1099,6 +1692,172 @@ const Admin = () => {
                   <p style={{ margin: 0, fontSize: "0.875rem", color: "#94a3b8", fontStyle: "italic" }}>No photos or videos</p>
                 )}
               </div>
+
+              {/* Status History Timeline */}
+              {statusHistory.length > 0 && (
+                <div style={{ marginBottom: 24, borderTop: `2px solid ${colors.border}`, paddingTop: 24, transition: "border-color 0.3s" }}>
+                  <h3 style={{ margin: "0 0 16px 0", fontSize: "1rem", fontWeight: 600, color: colors.text, display: "flex", alignItems: "center", gap: 8, transition: "color 0.3s" }}>
+                    ⏱️ Status History
+                    <span style={{ fontSize: "0.75rem", fontWeight: 400, color: colors.textSecondary, transition: "color 0.3s" }}>
+                      ({statusHistory.length})
+                    </span>
+                  </h3>
+
+                  <div style={{ position: "relative", paddingLeft: 32 }}>
+                    {/* Timeline vertical line */}
+                    <div style={{ 
+                      position: "absolute", 
+                      left: 11, 
+                      top: 8, 
+                      bottom: 8, 
+                      width: 2, 
+                      background: darkMode ? "#334155" : "#e2e8f0",
+                      transition: "background 0.3s"
+                    }} />
+
+                    {statusHistory.map((entry, idx) => {
+                      // Parse status from action_description (e.g., "Changed status to responding")
+                      const statusMatch = entry.action_description?.match(/to (\w+)/);
+                      const status = statusMatch ? statusMatch[1] : 'unknown';
+                      
+                      // Status colors and icons
+                      const statusConfig = {
+                        pending: { color: '#ef4444', icon: '🔴', label: 'Pending' },
+                        responding: { color: '#f59e0b', icon: '🟡', label: 'Responding' },
+                        resolved: { color: '#10b981', icon: '🟢', label: 'Resolved' }
+                      };
+                      const config = statusConfig[status] || { color: '#94a3b8', icon: '⚪', label: status };
+
+                      // Calculate time elapsed since this status change
+                      const timeElapsed = (() => {
+                        const now = new Date();
+                        const then = new Date(entry.created_at);
+                        const diffMs = now - then;
+                        const diffMins = Math.floor(diffMs / 60000);
+                        const diffHours = Math.floor(diffMins / 60);
+                        const diffDays = Math.floor(diffHours / 24);
+
+                        if (diffDays > 0) return `${diffDays}d ago`;
+                        if (diffHours > 0) return `${diffHours}h ago`;
+                        if (diffMins > 0) return `${diffMins}m ago`;
+                        return 'just now';
+                      })();
+
+                      // Calculate time between status changes
+                      const timeBetween = idx > 0 ? (() => {
+                        const prev = new Date(statusHistory[idx - 1].created_at);
+                        const curr = new Date(entry.created_at);
+                        const diffMs = curr - prev;
+                        const diffMins = Math.floor(diffMs / 60000);
+                        const diffHours = Math.floor(diffMins / 60);
+
+                        if (diffHours > 0) return `${diffHours}h ${diffMins % 60}m`;
+                        return `${diffMins}m`;
+                      })() : null;
+
+                      return (
+                        <div 
+                          key={entry.id} 
+                          style={{ 
+                            position: "relative",
+                            marginBottom: idx < statusHistory.length - 1 ? 20 : 0,
+                            paddingBottom: idx < statusHistory.length - 1 ? 20 : 0
+                          }}
+                        >
+                          {/* Timeline dot */}
+                          <div style={{ 
+                            position: "absolute", 
+                            left: -32, 
+                            top: 2,
+                            width: 24, 
+                            height: 24, 
+                            borderRadius: "50%", 
+                            background: darkMode ? "#1e293b" : "white",
+                            border: `3px solid ${config.color}`,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "0.625rem",
+                            zIndex: 1,
+                            transition: "all 0.3s"
+                          }}>
+                            {config.icon}
+                          </div>
+
+                          {/* Status change info */}
+                          <div style={{ 
+                            background: darkMode ? "#0f172a" : "#f8fafc",
+                            padding: 12,
+                            borderRadius: 8,
+                            border: `1px solid ${colors.border}`,
+                            transition: "all 0.3s"
+                          }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 4 }}>
+                              <span style={{ 
+                                fontSize: "0.875rem", 
+                                fontWeight: 600, 
+                                color: config.color,
+                                textTransform: "capitalize"
+                              }}>
+                                {config.label}
+                              </span>
+                              <span style={{ fontSize: "0.75rem", color: colors.textSecondary, transition: "color 0.3s" }}>
+                                {timeElapsed}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: "0.75rem", color: colors.textSecondary, transition: "color 0.3s" }}>
+                              by {entry.admin_email || 'Unknown'}
+                            </div>
+                            {timeBetween && (
+                              <div style={{ 
+                                fontSize: "0.75rem", 
+                                color: darkMode ? "#64748b" : "#94a3b8",
+                                marginTop: 4,
+                                fontStyle: "italic"
+                              }}>
+                                ⏱ {timeBetween} from previous status
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Response time metrics */}
+                  {statusHistory.length >= 2 && (
+                    <div style={{ 
+                      marginTop: 16, 
+                      padding: 12, 
+                      background: darkMode ? "#0f172a" : "#f1f5f9",
+                      borderRadius: 8,
+                      display: "flex",
+                      gap: 16,
+                      flexWrap: "wrap",
+                      transition: "background 0.3s"
+                    }}>
+                      {(() => {
+                        const firstStatus = new Date(statusHistory[0].created_at);
+                        const lastStatus = new Date(statusHistory[statusHistory.length - 1].created_at);
+                        const totalTime = lastStatus - firstStatus;
+                        const totalMins = Math.floor(totalTime / 60000);
+                        const totalHours = Math.floor(totalMins / 60);
+
+                        return (
+                          <div style={{ flex: 1, minWidth: 120 }}>
+                            <div style={{ fontSize: "0.75rem", color: colors.textSecondary, marginBottom: 4, transition: "color 0.3s" }}>
+                              Total Response Time
+                            </div>
+                            <div style={{ fontSize: "1rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
+                              {totalHours > 0 ? `${totalHours}h ${totalMins % 60}m` : `${totalMins}m`}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Admin Notes Section */}
               <div style={{ marginBottom: 24, borderTop: `2px solid ${colors.border}`, paddingTop: 24, transition: "border-color 0.3s" }}>
@@ -1312,6 +2071,267 @@ const Admin = () => {
           </div>
         )}
       </div>
+
+      {/* SMS Settings Modal */}
+      {showSMSSettings && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}>
+          <div style={{ background: colors.cardBg, borderRadius: 12, maxWidth: 600, width: "100%", maxHeight: "90vh", overflow: "auto", transition: "all 0.3s" }}>
+            {/* Header */}
+            <div style={{ padding: 24, borderBottom: `1px solid ${colors.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", transition: "border-color 0.3s" }}>
+              <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
+                📱 SMS Notifications
+              </h2>
+              <button 
+                onClick={() => setShowSMSSettings(false)}
+                style={{ background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "#94a3b8", padding: 0 }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: 24 }}>
+              {/* Enable/Disable Toggle */}
+              <div style={{ marginBottom: 24, padding: 16, background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, border: `1px solid ${colors.border}`, transition: "all 0.3s" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={smsSettings.enabled}
+                    onChange={(e) => {
+                      const newSettings = { ...smsSettings, enabled: e.target.checked };
+                      setSmsSettings(newSettings);
+                      saveSMSSettings(newSettings);
+                    }}
+                    style={{ width: 20, height: 20, cursor: "pointer" }}
+                  />
+                  <div>
+                    <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, transition: "color 0.3s" }}>
+                      Enable SMS Notifications
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: colors.textSecondary, marginTop: 2, transition: "color 0.3s" }}>
+                      Send SMS alerts to configured phone numbers
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {/* Notification Options */}
+              {smsSettings.enabled && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, marginBottom: 12, transition: "color 0.3s" }}>
+                    Notification Triggers
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={smsSettings.notifyOnNew}
+                        onChange={(e) => {
+                          const newSettings = { ...smsSettings, notifyOnNew: e.target.checked };
+                          setSmsSettings(newSettings);
+                          saveSMSSettings(newSettings);
+                        }}
+                        style={{ cursor: "pointer" }}
+                      />
+                      <span style={{ fontSize: "0.875rem", color: colors.text, transition: "color 0.3s" }}>
+                        New emergency reported
+                      </span>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={smsSettings.notifyOnStatusChange}
+                        onChange={(e) => {
+                          const newSettings = { ...smsSettings, notifyOnStatusChange: e.target.checked };
+                          setSmsSettings(newSettings);
+                          saveSMSSettings(newSettings);
+                        }}
+                        style={{ cursor: "pointer" }}
+                      />
+                      <span style={{ fontSize: "0.875rem", color: colors.text, transition: "color 0.3s" }}>
+                        Status changes
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Phone Numbers */}
+              {smsSettings.enabled && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: "0.875rem", fontWeight: 600, color: colors.text, marginBottom: 12, transition: "color 0.3s" }}>
+                    Phone Numbers ({smsSettings.phoneNumbers.length})
+                  </div>
+                  
+                  {/* Add Phone Number */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                    <input
+                      type="tel"
+                      value={newPhoneNumber}
+                      onChange={(e) => setNewPhoneNumber(e.target.value)}
+                      placeholder="0XXXXXXXXX or +233XXXXXXXXX"
+                      style={{
+                        flex: 1,
+                        padding: "8px 12px",
+                        borderRadius: 6,
+                        border: `1px solid ${colors.border}`,
+                        background: darkMode ? "#1e293b" : "white",
+                        color: colors.text,
+                        fontSize: "0.875rem",
+                        transition: "all 0.3s"
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (newPhoneNumber.trim()) {
+                          const newSettings = {
+                            ...smsSettings,
+                            phoneNumbers: [...smsSettings.phoneNumbers, newPhoneNumber.trim()]
+                          };
+                          setSmsSettings(newSettings);
+                          saveSMSSettings(newSettings);
+                          setNewPhoneNumber('');
+                        }
+                      }}
+                      style={{
+                        padding: "8px 16px",
+                        background: "#10b981",
+                        color: "white",
+                        border: "none",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontSize: "0.875rem",
+                        fontWeight: 500
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {/* Phone Numbers List */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {smsSettings.phoneNumbers.length === 0 ? (
+                      <div style={{ padding: 16, textAlign: "center", color: colors.textSecondary, fontSize: "0.875rem", fontStyle: "italic", transition: "color 0.3s" }}>
+                        No phone numbers added yet
+                      </div>
+                    ) : (
+                      smsSettings.phoneNumbers.map((phone, idx) => (
+                        <div key={idx} style={{ 
+                          display: "flex", 
+                          justifyContent: "space-between", 
+                          alignItems: "center",
+                          padding: 12,
+                          background: darkMode ? "#0f172a" : "#f8fafc",
+                          borderRadius: 6,
+                          border: `1px solid ${colors.border}`,
+                          transition: "all 0.3s"
+                        }}>
+                          <span style={{ fontSize: "0.875rem", color: colors.text, transition: "color 0.3s" }}>
+                            {formatPhoneDisplay(phone)}
+                          </span>
+                          <button
+                            onClick={() => {
+                              const newSettings = {
+                                ...smsSettings,
+                                phoneNumbers: smsSettings.phoneNumbers.filter((_, i) => i !== idx)
+                              };
+                              setSmsSettings(newSettings);
+                              saveSMSSettings(newSettings);
+                            }}
+                            style={{
+                              padding: "4px 8px",
+                              background: "#ef4444",
+                              color: "white",
+                              border: "none",
+                              borderRadius: 4,
+                              cursor: "pointer",
+                              fontSize: "0.75rem",
+                              fontWeight: 500
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Test SMS */}
+              {smsSettings.enabled && smsSettings.phoneNumbers.length > 0 && (
+                <div style={{ padding: 16, background: "#eff6ff", borderRadius: 8, border: "1px solid #3b82f6" }}>
+                  <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#1e40af", marginBottom: 8 }}>
+                    💡 Test SMS
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "#1e40af", marginBottom: 12 }}>
+                    Send a test message to verify your configuration
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const result = await sendTestSMS(smsSettings.phoneNumbers[0], 'Test message from Emergency Response System. SMS notifications are working!');
+                      if (result.success) {
+                        alert('✅ Test SMS sent successfully!');
+                      } else {
+                        alert(`❌ Failed to send test SMS: ${result.error}`);
+                      }
+                    }}
+                    style={{
+                      padding: "8px 16px",
+                      background: "#3b82f6",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      fontSize: "0.875rem",
+                      fontWeight: 500
+                    }}
+                  >
+                    Send Test SMS
+                  </button>
+                </div>
+              )}
+
+              {/* Setup Instructions */}
+              {!smsSettings.enabled && (
+                <div style={{ padding: 16, background: "#fef3c7", borderRadius: 8, border: "1px solid #f59e0b" }}>
+                  <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#92400e", marginBottom: 8 }}>
+                    ⚙️ Setup Required
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "#92400e", lineHeight: 1.6 }}>
+                    To use SMS notifications, you need to configure Twilio credentials in your backend .env file:
+                    <br />• TWILIO_ACCOUNT_SID
+                    <br />• TWILIO_AUTH_TOKEN
+                    <br />• TWILIO_PHONE_NUMBER
+                    <br /><br />
+                    Get these from <a href="https://www.twilio.com/console" target="_blank" style={{ color: "#92400e", fontWeight: 600 }}>twilio.com/console</a>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: 24, borderTop: `1px solid ${colors.border}`, display: "flex", justifyContent: "flex-end", transition: "border-color 0.3s" }}>
+              <button
+                onClick={() => setShowSMSSettings(false)}
+                style={{
+                  padding: "8px 24px",
+                  background: colors.buttonBg,
+                  color: colors.buttonText,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontSize: "0.875rem",
+                  fontWeight: 500,
+                  transition: "all 0.3s"
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

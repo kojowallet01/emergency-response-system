@@ -122,3 +122,103 @@ export const exportToCSV = (reports) => {
   link.click();
   document.body.removeChild(link);
 };
+
+// Get busiest hours of the day
+export const getBusiestHours = (reports) => {
+  const hourCounts = Array(24).fill(0);
+  
+  reports.forEach(r => {
+    const hour = new Date(r.created_at).getHours();
+    hourCounts[hour]++;
+  });
+  
+  return hourCounts.map((count, hour) => ({
+    hour: `${hour.toString().padStart(2, '0')}:00`,
+    count
+  }));
+};
+
+// Get reports by type breakdown
+export const getReportsByType = (reports) => {
+  const types = { fire: 0, medical: 0, crime: 0 };
+  
+  reports.forEach(r => {
+    if (types.hasOwnProperty(r.type)) {
+      types[r.type]++;
+    }
+  });
+  
+  return [
+    { type: 'Fire', count: types.fire, color: '#ef4444', icon: '🔥' },
+    { type: 'Medical', count: types.medical, color: '#3b82f6', icon: '🏥' },
+    { type: 'Crime', count: types.crime, color: '#8b5cf6', icon: '🚔' }
+  ];
+};
+
+// Get reports by status breakdown
+export const getReportsByStatus = (reports) => {
+  const statuses = { pending: 0, responding: 0, resolved: 0 };
+  
+  reports.forEach(r => {
+    if (statuses.hasOwnProperty(r.status)) {
+      statuses[r.status]++;
+    }
+  });
+  
+  return [
+    { status: 'Pending', count: statuses.pending, color: '#ef4444', icon: '🔴' },
+    { status: 'Responding', count: statuses.responding, color: '#f59e0b', icon: '🟡' },
+    { status: 'Resolved', count: statuses.resolved, color: '#10b981', icon: '🟢' }
+  ];
+};
+
+// Get response time by emergency type
+export const getResponseTimeByType = (reports) => {
+  const types = { fire: [], medical: [], crime: [] };
+  
+  reports.forEach(r => {
+    if (r.status !== 'pending' && r.updated_at && types.hasOwnProperty(r.type)) {
+      const created = new Date(r.created_at);
+      const updated = new Date(r.updated_at);
+      const minutes = Math.floor((updated - created) / 60000);
+      types[r.type].push(minutes);
+    }
+  });
+  
+  const calculateAvg = (arr) => {
+    if (arr.length === 0) return 0;
+    const sum = arr.reduce((a, b) => a + b, 0);
+    return Math.floor(sum / arr.length);
+  };
+  
+  return [
+    { type: 'Fire', avgMinutes: calculateAvg(types.fire), color: '#ef4444', icon: '🔥' },
+    { type: 'Medical', avgMinutes: calculateAvg(types.medical), color: '#3b82f6', icon: '🏥' },
+    { type: 'Crime', avgMinutes: calculateAvg(types.crime), color: '#8b5cf6', icon: '🚔' }
+  ];
+};
+
+// Get peak day of the week
+export const getBusiestDayOfWeek = (reports) => {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayCounts = Array(7).fill(0);
+  
+  reports.forEach(r => {
+    const day = new Date(r.created_at).getDay();
+    dayCounts[day]++;
+  });
+  
+  return dayCounts.map((count, idx) => ({
+    day: days[idx],
+    count
+  }));
+};
+
+// Format minutes to readable time
+export const formatMinutes = (minutes) => {
+  if (minutes === 0) return 'N/A';
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+};
