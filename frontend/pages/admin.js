@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { requestNotificationPermission, notifyNewEmergency } from "../lib/notifications";
 import { getAverageResponseTime, getReportsToday, getReportsThisWeek, getTrendData, exportToCSV } from "../lib/analytics";
 import dynamic from 'next/dynamic';
+import '../styles/admin-mobile.css';
 
 // Import map dynamically to avoid SSR issues
 const EmergencyMap = dynamic(() => import('../components/EmergencyMap'), {
@@ -197,7 +198,7 @@ const Admin = () => {
     <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
       {/* Clean Header */}
       <div style={{ background: "white", borderBottom: "1px solid #e2e8f0", padding: "24px 32px" }}>
-        <div style={{ maxWidth: 1400, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="admin-header" style={{ maxWidth: 1400, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 600, color: "#0f172a" }}>
               Emergency Dashboard

@@ -1,0 +1,124 @@
+/* Mobile styles for Admin Dashboard */
+
+@media (max-width: 768px) {
+  /* Header - Stack vertically on mobile */
+  .admin-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 15px !important;
+  }
+
+  .admin-header > div:last-child {
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 8px !important;
+  }
+
+  .admin-header button,
+  .admin-header a {
+    width: 100% !important;
+    justify-content: center !important;
+    text-align: center !important;
+  }
+
+  /* Stats cards - 2 columns on tablet */
+  [style*="repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 15px !important;
+  }
+
+  /* Charts - Stack vertically */
+  [style*="1fr 1fr"][style*="gap: 24"] {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+
+  /* Reduce padding */
+  [style*="padding: 32px"] {
+    padding: 20px !important;
+  }
+
+  [style*="padding: 24px"] {
+    padding: 16px !important;
+  }
+
+  /* Smaller font sizes */
+  [style*="fontSize: 2rem"] {
+    font-size: 1.5rem !important;
+  }
+
+  [style*="fontSize: 1.5rem"] {
+    font-size: 1.2rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Stats cards - Single column on phone */
+  [style*="repeat(4, 1fr)"],
+  [style*="repeat(2, 1fr)"] {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Even smaller padding */
+  [style*="padding: 32px"] {
+    padding: 15px !important;
+  }
+
+  [style*="padding: 24px"] {
+    padding: 12px !important;
+  }
+
+  [style*="padding: 20px"] {
+    padding: 12px !important;
+  }
+
+  /* Smaller fonts */
+  [style*="fontSize: 2rem"] {
+    font-size: 1.3rem !important;
+  }
+
+  [style*="fontSize: 1.5rem"] {
+    font-size: 1.1rem !important;
+  }
+
+  [style*="fontSize: 1rem"] {
+    font-size: 0.9rem !important;
+  }
+
+  /* Hide email on very small screens */
+  .admin-header span[style*="fontSize: 0.875rem"] {
+    display: none !important;
+  }
+
+  /* Smaller notification button text */
+  button[style*="Notifications"] {
+    font-size: 0.7rem !important;
+    padding: 6px 10px !important;
+  }
+
+  /* Report cards - Better mobile layout */
+  [style*="display: flex"][style*="gap: 20px"] {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  /* Modal - Full screen on mobile */
+  [style*="position: fixed"][style*="inset: 0"] > div {
+    width: 95% !important;
+    max-width: 95% !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+}
+
+/* Landscape mode */
+@media (max-width: 768px) and (orientation: landscape) {
+  [style*="repeat(4, 1fr)"] {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+
+  [style*="1fr 1fr"][style*="gap: 24"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
