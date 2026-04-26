@@ -1,11 +1,27 @@
-/* Mobile styles for Admin Dashboard */
+/* Mobile styles for Admin Dashboard - Fully Responsive */
 
+/* Base mobile styles - All phones */
+@media (max-width: 1024px) {
+  /* Container adjustments */
+  [style*="maxWidth: 1400"] {
+    max-width: 100% !important;
+    padding-left: 15px !important;
+    padding-right: 15px !important;
+  }
+}
+
+/* Tablets and large phones (landscape) */
 @media (max-width: 768px) {
   /* Header - Stack vertically on mobile */
   .admin-header {
     flex-direction: column !important;
     align-items: flex-start !important;
     gap: 15px !important;
+    padding: 15px !important;
+  }
+
+  .admin-header > div:first-child {
+    width: 100% !important;
   }
 
   .admin-header > div:last-child {
@@ -19,6 +35,7 @@
     width: 100% !important;
     justify-content: center !important;
     text-align: center !important;
+    white-space: nowrap !important;
   }
 
   /* Stats cards - 2 columns on tablet */
@@ -28,7 +45,7 @@
   }
 
   /* Charts - Stack vertically */
-  [style*="1fr 1fr"][style*="gap: 24"] {
+  [style*="gridTemplateColumns"][style*="1fr 1fr"] {
     grid-template-columns: 1fr !important;
     gap: 20px !important;
   }
@@ -43,15 +60,21 @@
   }
 
   /* Smaller font sizes */
-  [style*="fontSize: 2rem"] {
+  [style*="fontSize"][style*="2rem"] {
     font-size: 1.5rem !important;
   }
 
-  [style*="fontSize: 1.5rem"] {
+  [style*="fontSize"][style*="1.5rem"] {
     font-size: 1.2rem !important;
+  }
+
+  /* Report cards - Better spacing */
+  [style*="display: flex"][style*="gap: 20px"] {
+    gap: 15px !important;
   }
 }
 
+/* Standard phones (portrait) */
 @media (max-width: 480px) {
   /* Stats cards - Single column on phone */
   [style*="repeat(4, 1fr)"],
@@ -74,31 +97,35 @@
   }
 
   /* Smaller fonts */
-  [style*="fontSize: 2rem"] {
+  [style*="fontSize"][style*="2rem"] {
     font-size: 1.3rem !important;
   }
 
-  [style*="fontSize: 1.5rem"] {
+  [style*="fontSize"][style*="1.5rem"] {
     font-size: 1.1rem !important;
   }
 
-  [style*="fontSize: 1rem"] {
+  [style*="fontSize"][style*="1rem"] {
     font-size: 0.9rem !important;
   }
 
+  [style*="fontSize"][style*="0.875rem"] {
+    font-size: 0.8rem !important;
+  }
+
   /* Hide email on very small screens */
-  .admin-header span[style*="fontSize: 0.875rem"] {
+  .admin-header span[style*="fontSize"] {
     display: none !important;
   }
 
-  /* Smaller notification button text */
+  /* Smaller notification button */
   button[style*="Notifications"] {
     font-size: 0.7rem !important;
     padding: 6px 10px !important;
   }
 
-  /* Report cards - Better mobile layout */
-  [style*="display: flex"][style*="gap: 20px"] {
+  /* Report cards - Stack completely */
+  [style*="display: flex"][style*="gap"] {
     flex-direction: column !important;
     gap: 12px !important;
   }
@@ -109,16 +136,166 @@
     max-width: 95% !important;
     max-height: 90vh !important;
     overflow-y: auto !important;
+    margin: 5vh auto !important;
+  }
+
+  /* Charts - Smaller on mobile */
+  [style*="width: 180"] {
+    width: 140px !important;
+    height: 140px !important;
+  }
+
+  /* Filter tabs - Wrap on small screens */
+  [style*="display: flex"][style*="gap: 12px"] {
+    flex-wrap: wrap !important;
   }
 }
 
-/* Landscape mode */
+/* Small phones (iPhone SE, older Androids) */
+@media (max-width: 375px) {
+  .admin-header {
+    padding: 12px !important;
+  }
+
+  [style*="padding: 32px"],
+  [style*="padding: 24px"],
+  [style*="padding: 20px"],
+  [style*="padding: 15px"] {
+    padding: 10px !important;
+  }
+
+  [style*="fontSize"][style*="2rem"] {
+    font-size: 1.2rem !important;
+  }
+
+  [style*="fontSize"][style*="1.5rem"] {
+    font-size: 1rem !important;
+  }
+
+  [style*="gap: 24px"],
+  [style*="gap: 20px"],
+  [style*="gap: 15px"] {
+    gap: 10px !important;
+  }
+
+  /* Smaller buttons */
+  .admin-header button,
+  .admin-header a {
+    padding: 8px 12px !important;
+    font-size: 0.75rem !important;
+  }
+
+  /* Charts even smaller */
+  [style*="width: 180"],
+  [style*="width: 140"] {
+    width: 120px !important;
+    height: 120px !important;
+  }
+}
+
+/* Very small phones (320px width) */
+@media (max-width: 360px) {
+  .admin-header h1 {
+    font-size: 1rem !important;
+  }
+
+  [style*="fontSize"][style*="2rem"] {
+    font-size: 1.1rem !important;
+  }
+
+  [style*="padding"] {
+    padding: 8px !important;
+  }
+
+  [style*="gap"] {
+    gap: 8px !important;
+  }
+
+  /* Ultra compact buttons */
+  .admin-header button,
+  .admin-header a {
+    padding: 6px 10px !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* Hide notification text, keep icon */
+  button[style*="Notifications"] span:last-child {
+    display: none !important;
+  }
+}
+
+/* Landscape mode - Keep horizontal layout */
 @media (max-width: 768px) and (orientation: landscape) {
   [style*="repeat(4, 1fr)"] {
     grid-template-columns: repeat(4, 1fr) !important;
+    gap: 12px !important;
   }
 
-  [style*="1fr 1fr"][style*="gap: 24"] {
+  [style*="gridTemplateColumns"][style*="1fr 1fr"] {
     grid-template-columns: 1fr 1fr !important;
+  }
+
+  .admin-header {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+  }
+
+  .admin-header > div:last-child {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+  }
+}
+
+/* Large phones (phablets) */
+@media (min-width: 481px) and (max-width: 640px) {
+  [style*="repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Foldable phones (unfolded) */
+@media (min-width: 641px) and (max-width: 768px) {
+  [style*="repeat(4, 1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  [style*="gridTemplateColumns"][style*="1fr 1fr"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+/* Fix for notch/safe areas on modern phones */
+@supports (padding: max(0px)) {
+  .admin-header {
+    padding-left: max(15px, env(safe-area-inset-left)) !important;
+    padding-right: max(15px, env(safe-area-inset-right)) !important;
+  }
+
+  [style*="maxWidth: 1400"] {
+    padding-left: max(15px, env(safe-area-inset-left)) !important;
+    padding-right: max(15px, env(safe-area-inset-right)) !important;
+  }
+}
+
+/* Touch-friendly improvements */
+@media (hover: none) and (pointer: coarse) {
+  /* Larger tap targets */
+  .admin-header button,
+  .admin-header a {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  /* Better spacing for fingers */
+  [style*="gap: 12px"] {
+    gap: 15px !important;
+  }
+}
+
+/* High DPI screens (Retina, etc) */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* Sharper borders */
+  [style*="border: 1px"] {
+    border-width: 0.5px !important;
   }
 }

@@ -1,7 +1,26 @@
-﻿* {
-  margin: 0;
-  padding: 0;
+﻿/* ============= BASE RESPONSIVE SETUP ============= */
+html {
+  font-size: 16px; /* Base font size */
+  -webkit-text-size-adjust: 100%; /* Prevent font scaling in landscape */
+}
+
+body {
+  overflow-x: hidden; /* Prevent horizontal scroll */
+  width: 100%;
+  max-width: 100vw;
+}
+
+/* Flexible images and media */
+img, video, canvas, svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Prevent layout shift */
+* {
   box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 html, body, #__next {
