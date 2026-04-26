@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Generate Emergency App Icons</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 40px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      margin: 0;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+    p {
+      color: #666;
+      margin-bottom: 30px;
+    }
+    .icons {
+      display: flex;
+      justify-content: space-around;
+      margin: 40px 0;
+      flex-wrap: wrap;
+      gap: 30px;
+    }
+    .icon-box {
+      text-align: center;
+    }
+    canvas {
+      border: 3px solid #667eea;
+      border-radius: 20px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+      margin-bottom: 15px;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 15px 40px;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+    }
+    .instructions {
+      background: #f8f9fa;
+      padding: 25px;
+      border-radius: 12px;
+      margin-top: 30px;
+      text-align: left;
+    }
+    .instructions h3 {
+      color: #667eea;
+      margin-top: 0;
+    }
+    .instructions ol {
+      color: #555;
+      line-height: 1.8;
+    }
+    .instructions code {
+      background: #e9ecef;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      color: #d63384;
+    }
+    .success {
+      background: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+      border: 1px solid #c3e6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚨 Emergency App Icons</h1>
+    <p>Click the buttons below to download your app icons</p>
+    
+    <div class="icons">
+      <div class="icon-box">
+        <h3>192x192 Icon</h3>
+        <canvas id="canvas192" width="192" height="192"></canvas>
+        <br>
+        <button onclick="downloadIcon(192)">📥 Download icon-192.png</button>
+      </div>
+      
+      <div class="icon-box">
+        <h3>512x512 Icon</h3>
+        <canvas id="canvas512" width="512" height="512"></canvas>
+        <br>
+        <button onclick="downloadIcon(512)">📥 Download icon-512.png</button>
+      </div>
+    </div>
+    
+    <div class="instructions">
+      <h3>📋 Next Steps:</h3>
+      <ol>
+        <li>Click both download buttons above</li>
+        <li>Save the files as <code>icon-192.png</code> and <code>icon-512.png</code></li>
+        <li>Move them to <code>frontend/public/</code> folder</li>
+        <li>Commit and push to GitHub</li>
+        <li>Your PWA will have professional icons! 🎉</li>
+      </ol>
+    </div>
+    
+    <div class="success" id="success" style="display: none;">
+      ✅ Icons generated successfully! Download them now.
+    </div>
+  </div>
+
+  <script>
+    function createIcon(size) {
+      const canvas = document.getElementById(`canvas${size}`);
+      const ctx = canvas.getContext('2d');
+      
+      // Gradient background
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, '#667eea');
+      gradient.addColorStop(1, '#764ba2');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+      
+      // White circle background
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.arc(size/2, size/2, size/3, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Red alert circle
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(size/2, size/2, size/3.5, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // White exclamation mark
+      ctx.fillStyle = 'white';
+      ctx.font = `bold ${size/2.5}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('!', size/2, size/2.2);
+      
+      // Small dot at bottom of exclamation
+      ctx.beginPath();
+      ctx.arc(size/2, size/1.55, size/25, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    function downloadIcon(size) {
+      const canvas = document.getElementById(`canvas${size}`);
+      const link = document.createElement('a');
+      link.download = `icon-${size}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      
+      // Show success message
+      document.getElementById('success').style.display = 'block';
+    }
+    
+    // Create icons on page load
+    window.onload = function() {
+      createIcon(192);
+      createIcon(512);
+    };
+  </script>
+</body>
+</html>
