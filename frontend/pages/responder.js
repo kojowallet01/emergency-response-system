@@ -715,19 +715,24 @@ export default function ResponderPage() {
                 📌 {assignment.latitude.toFixed(4)}°, {assignment.longitude.toFixed(4)}°
               </div>
 
-              {distance !== null && (
+              {distance !== null && distance <= 0.5 && (
                 <div style={{ 
                   marginTop: 16,
                   padding: 16,
-                  background: distance <= 0.5 ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                   borderRadius: 12,
                   textAlign: 'center',
                   fontWeight: 700,
                   fontSize: '1.1rem',
-                  boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
-                  animation: distance <= 0.5 ? 'pulse 2s ease-in-out infinite' : 'none'
+                  boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)',
+                  animation: 'pulse 2s ease-in-out infinite',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 10
                 }}>
-                  {distance <= 0.5 ? '✅ ARRIVED AT SCENE' : `📍 ${distance.toFixed(2)} km TO DESTINATION`}
+                  <span style={{ fontSize: '1.5rem' }}>✅</span>
+                  ARRIVED AT SCENE
                 </div>
               )}
             </div>
