@@ -1,5 +1,5 @@
 // Responder App Service Worker
-const CACHE_NAME = 'responder-cache-v1';
+const CACHE_NAME = 'responder-cache-v2.1';
 const urlsToCache = [
   '/responder',
   '/responder-manifest.json',

@@ -355,7 +355,7 @@ export default function ResponderPage() {
   return (
     <>
       <Head>
-        <title>Emergency Responder v2.0</title>
+        <title>Emergency Responder v2.1</title>
         <meta name="description" content="Ghana Emergency Response System - Responder App" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
         <meta name="theme-color" content="#667eea" />
@@ -365,7 +365,8 @@ export default function ResponderPage() {
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
         <meta http-equiv="Pragma" content="no-cache" />
         <meta http-equiv="Expires" content="0" />
-        <link rel="manifest" href="/responder-manifest.json" />
+        <meta name="version" content="2.1" />
+        <link rel="manifest" href="/responder-manifest.json?v=2.1" />
         <link rel="apple-touch-icon" href="/responder-icon-192.png" />
       </Head>
       
