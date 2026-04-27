@@ -1,0 +1,14 @@
+📱 iPhone Access URL:
+
+http://192.168.109.246:3000/responder
+
+✅ Server is running and accessible!
+✅ Firewall rules are configured
+✅ Ready for iPhone testing
+
+Sample Responder IDs:
+- FIRE001
+- MED001  
+- POLICE001
+
+Password: responder123

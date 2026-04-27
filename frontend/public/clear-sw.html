@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Service Workers</title>
+</head>
+<body>
+    <h1>Clearing Service Workers...</h1>
+    <p id="status">Please wait...</p>
+    
+    <script>
+        async function clearEverything() {
+            const status = document.getElementById('status');
+            
+            // Unregister all service workers
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (let registration of registrations) {
+                await registration.unregister();
+                status.innerHTML += '<br>✅ Unregistered service worker';
+            }
+            
+            // Clear all caches
+            const cacheNames = await caches.keys();
+            for (let cacheName of cacheNames) {
+                await caches.delete(cacheName);
+                status.innerHTML += '<br>✅ Cleared cache: ' + cacheName;
+            }
+            
+            // Clear local storage
+            localStorage.clear();
+            status.innerHTML += '<br>✅ Cleared localStorage';
+            
+            // Clear session storage
+            sessionStorage.clear();
+            status.innerHTML += '<br>✅ Cleared sessionStorage';
+            
+            status.innerHTML += '<br><br><strong>✅ ALL CLEARED!</strong>';
+            status.innerHTML += '<br><br><a href="/admin">Go to Admin Page</a>';
+        }
+        
+        clearEverything();
+    </script>
+</body>
+</html>
