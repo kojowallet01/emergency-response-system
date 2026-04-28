@@ -2,7 +2,7 @@
   "name": "Emergency Responder",
   "short_name": "Responder",
   "description": "Ghana Emergency Response System - Responder App",
-  "start_url": "/responder-app.html",
+  "start_url": "/responder",
   "scope": "/",
   "display": "standalone",
   "background_color": "#667eea",

@@ -2,27 +2,32 @@
 import '../styles/admin-mobile.css';
 import Head from 'next/head';
 import { useEffect } from 'react';
+import { useRouter } from 'next/router';
 
 export default function App({ Component, pageProps }) {
+  const router = useRouter();
+  const isResponder = router.pathname === '/responder';
+
   useEffect(() => {
-    // Register service worker for PWA
+    // Register appropriate service worker for PWA
     if ('serviceWorker' in navigator) {
+      const swPath = isResponder ? '/responder-sw.js' : '/sw.js';
       navigator.serviceWorker
-        .register('/sw.js')
-        .then((registration) => console.log('Service Worker registered'))
+        .register(swPath)
+        .then((registration) => console.log('Service Worker registered:', swPath))
         .catch((error) => console.log('Service Worker registration failed:', error));
     }
-  }, []);
+  }, [isResponder]);
 
   return (
     <>
       <Head>
         {/* PWA Meta Tags */}
-        <meta name="application-name" content="Emergency Response" />
+        <meta name="application-name" content={isResponder ? "Emergency Responder" : "Emergency Response"} />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Emergency" />
-        <meta name="description" content="Ghana Emergency Response Network - Report emergencies instantly" />
+        <meta name="apple-mobile-web-app-status-bar-style" content={isResponder ? "black-translucent" : "default"} />
+        <meta name="apple-mobile-web-app-title" content={isResponder ? "Responder" : "Emergency"} />
+        <meta name="description" content={isResponder ? "Ghana Emergency Response System - Responder App" : "Ghana Emergency Response Network - Report emergencies instantly"} />
         <meta name="format-detection" content="telephone=no" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="theme-color" content="#667eea" />
@@ -30,13 +35,13 @@ export default function App({ Component, pageProps }) {
         {/* Viewport for mobile */}
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
         
-        {/* PWA Manifest */}
-        <link rel="manifest" href="/manifest.json" />
+        {/* PWA Manifest - Conditional based on route */}
+        <link rel="manifest" href={isResponder ? "/responder-manifest.json" : "/manifest.json"} />
         
-        {/* Icons */}
-        <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
-        <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
+        {/* Icons - Conditional based on route */}
+        <link rel="icon" type="image/png" sizes="192x192" href={isResponder ? "/responder-icon-192.png" : "/icon-192.png"} />
+        <link rel="icon" type="image/png" sizes="512x512" href={isResponder ? "/responder-icon-512.png" : "/icon-512.png"} />
+        <link rel="apple-touch-icon" href={isResponder ? "/responder-icon-192.png" : "/icon-192.png"} />
         
         {/* Fonts */}
         <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
