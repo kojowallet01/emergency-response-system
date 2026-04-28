@@ -36,6 +36,33 @@ export default function ResponderPage() {
   const watchIdRef = useRef(null);
   const mockIntervalRef = useRef(null);
 
+  // Clear cache function
+  const clearAllCache = async () => {
+    try {
+      // Clear caches
+      if ('caches' in window) {
+        const names = await caches.keys();
+        await Promise.all(names.map(name => caches.delete(name)));
+      }
+      
+      // Unregister service workers
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(reg => reg.unregister()));
+      }
+      
+      // Clear storage
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      alert('✅ Cache cleared! Page will reload.');
+      window.location.reload(true);
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      alert('⚠️ Could not clear cache. Try: Settings → Safari → Clear History');
+    }
+  };
+
   // Register service worker for PWA
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -535,10 +562,45 @@ export default function ResponderPage() {
                 ))}
               </div>
             </div>
+
+            {/* Clear Cache Button */}
+            <button
+              type="button"
+              onClick={clearAllCache}
+              style={{
+                width: '100%',
+                marginTop: 16,
+                padding: 12,
+                background: '#f3f4f6',
+                color: '#6b7280',
+                border: '2px solid #e5e7eb',
+                borderRadius: 12,
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              🔄 Clear Cache & Reload
+            </button>
           </div>
         </div>
       ) : (
         <div style={{ maxWidth: 600, margin: '0 auto' }}>
+          {/* Version Badge - for debugging */}
+          <div style={{
+            position: 'fixed',
+            top: 10,
+            right: 10,
+            background: 'rgba(0,0,0,0.7)',
+            color: 'white',
+            padding: '4px 8px',
+            borderRadius: 6,
+            fontSize: '0.7rem',
+            zIndex: 9999
+          }}>
+            v3.0
+          </div>
+
           {/* Header */}
           <div style={{ 
             background: 'rgba(255, 255, 255, 0.15)',
