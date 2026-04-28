@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Responder App - Fresh Install</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      max-width: 400px;
+      text-align: center;
+    }
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    .version {
+      background: rgba(255,255,255,0.2);
+      padding: 10px 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      font-weight: 600;
+    }
+    .btn {
+      display: inline-block;
+      padding: 16px 32px;
+      background: white;
+      color: #667eea;
+      text-decoration: none;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      margin: 10px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    .steps {
+      background: rgba(255,255,255,0.1);
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 30px;
+      text-align: left;
+    }
+    .steps h3 {
+      margin-top: 0;
+    }
+    .steps ol {
+      padding-left: 20px;
+    }
+    .steps li {
+      margin: 10px 0;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚑</h1>
+    <h2>Emergency Responder</h2>
+    <div class="version">Version 3.0 - Fresh Install</div>
+    
+    <p>This page will clear all cache and load the latest version.</p>
+    
+    <a href="/responder" class="btn" onclick="clearAndGo(event)">
+      🚀 Open Responder App
+    </a>
+    
+    <div class="steps">
+      <h3>📱 To Install as App:</h3>
+      <ol>
+        <li>Tap the button above</li>
+        <li>Wait for page to load</li>
+        <li>Tap Share (⬆️)</li>
+        <li>Tap "Add to Home Screen"</li>
+        <li>Tap "Add"</li>
+      </ol>
+      <p><strong>✅ Banner will be horizontal (not diagonal)</strong></p>
+    </div>
+  </div>
+
+  <script>
+    // Clear all caches
+    if ('caches' in window) {
+      caches.keys().then(function(names) {
+        for (let name of names) {
+          caches.delete(name);
+        }
+      });
+    }
+
+    // Unregister all service workers
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) {
+          registration.unregister();
+        }
+      });
+    }
+
+    function clearAndGo(e) {
+      e.preventDefault();
+      
+      // Clear localStorage
+      localStorage.clear();
+      
+      // Clear sessionStorage
+      sessionStorage.clear();
+      
+      // Add timestamp to force fresh load
+      const url = '/responder?v=' + Date.now();
+      
+      // Redirect
+      window.location.href = url;
+    }
+  </script>
+</body>
+</html>
