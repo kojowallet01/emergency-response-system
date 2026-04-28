@@ -778,27 +778,6 @@ export default function ResponderPage() {
               }}>
                 📌 {assignment.latitude.toFixed(4)}°, {assignment.longitude.toFixed(4)}°
               </div>
-
-              {distance !== null && distance <= 0.5 && (
-                <div style={{ 
-                  marginTop: 16,
-                  padding: 16,
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  borderRadius: 12,
-                  textAlign: 'center',
-                  fontWeight: 700,
-                  fontSize: '1.1rem',
-                  boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)',
-                  animation: 'pulse 2s ease-in-out infinite',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 10
-                }}>
-                  <span style={{ fontSize: '1.5rem' }}>✅</span>
-                  ARRIVED AT SCENE
-                </div>
-              )}
             </div>
           ) : (
             <div style={{ 
