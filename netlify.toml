@@ -1,18 +1,13 @@
 [build]
   base = "frontend"
   command = "npm install && npm run build"
-  publish = "out"
+  publish = ".next"
 
-[dev]
-  command = "cd frontend && npm run dev"
-  port = 3000
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
 
-# Redirect all non-file requests for client-side routing
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-  force = false
+[build.environment]
+  NODE_VERSION = "18"
 
 # Cache static assets
 [[headers]]
@@ -20,8 +15,24 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# Don't cache HTML files - they change frequently
+# Security headers
 [[headers]]
-  for = "/*.html"
+  for = "/*"
   [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(self), camera=(self), microphone=(self)"
+
+# Allow geolocation for responder page
+[[headers]]
+  for = "/responder"
+  [headers.values]
+    Permissions-Policy = "geolocation=(self)"
+
+# Service Worker
+[[headers]]
+  for = "/responder-sw.js"
+  [headers.values]
+    Content-Type = "application/javascript"
+    Service-Worker-Allowed = "/"
